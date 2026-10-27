@@ -1,0 +1,3245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Modular Multi-Phone Tennis Umpire — PoC</title>
+<!-- PeerJS & QRCodeJS with graceful offline fallback -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+<style>
+  :root {
+    --bg: #080b10;
+    --panel: #111722;
+    --panel-alt: #182030;
+    --border: #263248;
+    --text: #f3f6fc;
+    --muted: #93a3b8;
+    --optic: #d9ff00;
+    --optic-dim: rgba(217, 255, 0, 0.16);
+    --green: #10b981;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --blue: #3b82f6;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    overflow-x: hidden;
+    user-select: none;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(8, 11, 16, 0.94);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 14px;
+  }
+  .top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: -0.02em;
+  }
+  .ball-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--optic);
+    box-shadow: 0 0 10px var(--optic);
+  }
+  .status-pills {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .pill {
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .pill.active {
+    background: var(--optic-dim);
+    border-color: var(--optic);
+    color: var(--optic);
+  }
+  .pill.green {
+    background: rgba(16, 185, 129, 0.16);
+    border-color: var(--green);
+    color: #34d399;
+  }
+  .pill.amber {
+    background: rgba(245, 158, 11, 0.16);
+    border-color: var(--amber);
+    color: #fbbf24;
+  }
+  .nav-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .tab-btn {
+    background: var(--panel);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab-btn.active {
+    background: var(--optic);
+    color: #05080c;
+    border-color: var(--optic);
+  }
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 12px 12px 90px;
+  }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--optic);
+    margin: 0 0 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  @media (max-width: 520px) {
+    .grid-2-mobile-stack { grid-template-columns: 1fr; }
+  }
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  input[type="text"], select {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .btn {
+    background: var(--panel-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn.primary {
+    background: var(--optic);
+    color: #06090e;
+    border-color: var(--optic);
+  }
+  .btn.green {
+    background: var(--green);
+    color: #04130d;
+    border-color: var(--green);
+  }
+  .btn.red {
+    background: var(--red);
+    color: #fff;
+    border-color: var(--red);
+  }
+  .btn.amber {
+    background: var(--amber);
+    color: #090601;
+    border-color: var(--amber);
+  }
+  .btn.blue {
+    background: var(--blue);
+    color: #fff;
+    border-color: var(--blue);
+  }
+  .mode-card {
+    background: var(--bg);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .mode-card.selected {
+    border-color: var(--optic);
+    background: var(--optic-dim);
+  }
+  .mode-card h4 {
+    margin: 0 0 4px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .mode-card p {
+    margin: 0;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+  /* QR & Pairing */
+  .qr-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 12px;
+    border-radius: 12px;
+  }
+  #qrBox {
+    width: 116px;
+    height: 116px;
+    background: #fff;
+    padding: 6px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .room-code {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    color: var(--optic);
+  }
+  /* Viewport & Homography Overlay */
+  .viewport-container {
+    position: relative;
+    width: 100%;
+    height: 66vh;
+    min-height: 420px;
+    max-height: 780px;
+    background: #06140d;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    touch-action: none;
+    transition: all 0.18s ease;
+  }
+  .viewport-container.fullscreen-calib {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    border: none !important;
+    z-index: 9999 !important;
+    background: #000;
+  }
+  .fs-hud-top {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 35;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .fs-hud-top > * {
+    pointer-events: auto;
+  }
+  .fs-hud-bottom {
+    position: absolute;
+    bottom: 14px;
+    left: 12px;
+    right: 12px;
+    z-index: 35;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    background: rgba(7, 17, 13, 0.82);
+    backdrop-filter: blur(8px);
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(217, 255, 0, 0.35);
+  }
+  .loupe-box {
+    position: absolute;
+    width: 118px;
+    height: 118px;
+    border-radius: 50%;
+    border: 3px solid var(--optic);
+    box-shadow: 0 6px 24px rgba(0,0,0,0.9);
+    overflow: hidden;
+    z-index: 45;
+    pointer-events: none;
+    display: none;
+    background: #000;
+  }
+  .loupe-label {
+    position: absolute;
+    bottom: 4px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 800;
+    color: var(--optic);
+    background: rgba(0,0,0,0.75);
+    padding: 1px 0;
+  }
+  .nudge-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .nudge-btn {
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .nudge-btn:active {
+    background: var(--optic);
+    color: #000;
+  }
+  .viewport-container video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .viewport-container canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .pin-handle {
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    margin-left: -22px;
+    margin-top: -22px;
+    touch-action: none;
+    border-radius: 50%;
+    background: rgba(217, 255, 0, 0.25);
+    border: 2.5px solid var(--optic);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    z-index: 20;
+    box-shadow: 0 0 12px rgba(0,0,0,0.85);
+  }
+  .pin-handle::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--red);
+    border-radius: 50%;
+  }
+  .pin-label {
+    position: absolute;
+    top: -20px;
+    white-space: nowrap;
+    background: rgba(0,0,0,0.85);
+    color: var(--optic);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--optic);
+  }
+    /* Readiness Checklist & Start Match CTA */
+  .readiness-card {
+    background: linear-gradient(180deg, rgba(16, 185, 129, 0.10), rgba(11, 23, 18, 0.95));
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 12px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .readiness-card.all-ready {
+    border-color: var(--optic);
+    box-shadow: 0 0 22px rgba(217, 255, 0, 0.18);
+  }
+  .ready-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin: 10px 0;
+  }
+  @media (max-width: 600px) {
+    .ready-grid { grid-template-columns: 1fr; }
+  }
+  .ready-node {
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .ready-node.ok {
+    border-color: var(--green);
+    background: rgba(16, 185, 129, 0.08);
+  }
+  .start-match-btn {
+    width: 100%;
+    padding: 15px 18px;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    border-radius: 12px;
+    border: 2px solid var(--border);
+    background: #1b2e25;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .start-match-btn.armed {
+    background: var(--optic);
+    color: #050a07;
+    border-color: #fff;
+    box-shadow: 0 0 24px rgba(217, 255, 0, 0.45);
+  }
+  .start-match-btn.live {
+    background: var(--green);
+    color: #03150d;
+    border-color: #a7f3d0;
+  }
+
+  /* High-Contrast Scoreboard */
+  .scoreboard {
+    background: #04070b;
+    border: 2px solid var(--optic);
+    border-radius: 14px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .score-row {
+    display: grid;
+    grid-template-columns: 1fr 48px 48px 76px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .score-row:last-child { border-bottom: none; }
+  .player-name {
+    font-size: 18px;
+    font-weight: 900;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .serve-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--optic);
+    display: inline-block;
+  }
+  .score-cell {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 800;
+    text-align: center;
+    background: var(--panel);
+    padding: 6px 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .score-cell.pts {
+    font-size: 28px;
+    background: var(--optic);
+    color: #05080c;
+    border-color: var(--optic);
+  }
+  /* Call Banner */
+  .call-banner {
+    border-radius: 12px;
+    padding: 14px;
+    text-align: center;
+    font-weight: 900;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    border: 2px solid var(--border);
+    background: var(--panel-alt);
+  }
+  .call-banner.in {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: var(--green);
+    color: #34d399;
+  }
+  .call-banner.out {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: var(--red);
+    color: #f87171;
+  }
+  .call-banner.unsighted {
+    background: rgba(245, 158, 11, 0.22);
+    border-color: var(--amber);
+    color: #fbbf24;
+  }
+  .call-title {
+    font-size: 28px;
+    letter-spacing: 0.04em;
+    margin: 0;
+  }
+  .call-sub {
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-top: 4px;
+    color: var(--text);
+  }
+  /* 5-Second Grace Window Bar */
+  .grace-box {
+    background: #141824;
+    border: 2px solid var(--amber);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .grace-progress-bg {
+    width: 100%;
+    height: 10px;
+    background: #080b10;
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 8px 0 12px;
+  }
+  .grace-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--optic), var(--amber), var(--red));
+    transition: width 0.1s linear;
+  }
+  .log-list {
+    max-height: 250px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .log-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="top-row">
+    <div class="brand">
+      <span class="ball-dot"></span>
+      <span>TENNIS UMPIRE PoC</span>
+    </div>
+    <div class="status-pills">
+      <span id="rolePill" class="pill active">HOST NODE</span>
+      <span id="wakePill" class="pill green">ACTIVE 60FPS</span>
+      <span id="peerCountPill" class="pill">1 PHONE (SOLO)</span>
+    </div>
+  </div>
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchScreen(1)">1. Lobby & QR</button>
+    <button class="tab-btn" onclick="switchScreen(2)">2. 4-Pin Calib</button>
+    <button class="tab-btn" onclick="switchScreen(3)">3. Ball & Gesture</button>
+    <button class="tab-btn" onclick="switchScreen(4)">4. Live Umpire</button>
+  </div>
+</header>
+
+<main>
+  <!-- ================= SCREEN 1: MATCH LOBBY & MULTI-PHONE PAIRING ================= -->
+  <section id="screen1" class="screen active">
+    <div class="card">
+      <div class="card-title">
+        <span>Phone Topology & Rig Mode</span>
+        <span class="mono" style="font-size:11px;color:var(--muted);">Step 1 of 4</span>
+      </div>
+      <div class="grid-3 grid-2-mobile-stack" id="topologyCards">
+        <div class="mode-card selected" onclick="selectTopology('solo', this)">
+          <h4>1 Phone (Solo)</h4>
+          <p>Single phone on tripod or net post. Full autonomous tracking + audio calls.</p>
+        </div>
+        <div class="mode-card" onclick="selectTopology('mvp2', this)">
+          <h4>2 Phones (Net Post MVP)</h4>
+          <p>Phone 1 covers North half, Phone 2 covers South half. Zero net occlusion.</p>
+        </div>
+        <div class="mode-card" onclick="selectTopology('pro4', this)">
+          <h4>3–4 Phones (Doubles/Pro)</h4>
+          <p>Net posts + baseline corners. Cross-validates sightlines &amp; eliminates blind spots.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>Match Format &amp; Players</span></div>
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div>
+          <label>Player / Team A (North Start)</label>
+          <input type="text" id="playerAInput" value="Nugra" onchange="updatePlayerNames()" />
+        </div>
+        <div>
+          <label>Player / Team B (South Start)</label>
+          <input type="text" id="playerBInput" value="Partner / Rival" onchange="updatePlayerNames()" />
+        </div>
+      </div>
+      <div class="grid-2">
+        <div>
+          <label>Scoring Format</label>
+          <select id="formatSelect" onchange="updateFormat()">
+            <option value="std3">Standard 3-Set (Ad Scoring)</option>
+            <option value="fast4">Fast4 (No-Ad, First to 4 Games)</option>
+            <option value="tb10">10-Point Match Tiebreak</option>
+          </select>
+        </div>
+        <div>
+          <label>This Phone's Role</label>
+          <select id="nodeRoleSelect" onchange="setNodeRole(this.value)">
+            <option value="host">Host + Camera Node (Primary Scoreboard)</option>
+            <option value="camera">Remote Camera Node (Streams &lt;1KB Events)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Real Multi-Phone WebRTC Pairing (PeerJS + QR)</span>
+        <span id="peerStateBadge" class="pill amber">INITIALIZING...</span>
+      </div>
+      <div class="qr-wrap">
+        <div id="qrBox"></div>
+        <div style="flex:1;min-width:210px;">
+          <div style="font-size:11px;color:var(--muted);font-weight:700;">HOST ROOM CODE</div>
+          <div class="room-code" id="roomCodeDisplay">------</div>
+          <div style="font-size:12px;color:var(--muted);margin:6px 0 10px;">
+            Scan QR on Phone 2/3/4 or enter room code below to pair over WebRTC data channels (`&lt;1 KB` JSON bounce packets).
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <input type="text" id="joinCodeInput" placeholder="Enter 6-char Host Code" style="width:165px;text-transform:uppercase;" maxlength="6" />
+            <button class="btn primary" onclick="joinHostRoom()">Join Host</button>
+            <button class="btn" onclick="simulatePeerPing()">Test &lt;1KB Bounce Ping</button>
+          </div>
+        </div>
+      </div>
+      <div id="peerLog" class="mono" style="font-size:11px;color:var(--muted);margin-top:8px;">
+        Ready for multi-phone WebRTC pairing or standalone 1-phone court operation.
+      </div>
+    </div>
+
+    <button class="btn primary" style="width:100%;padding:14px;font-size:15px;" onclick="switchScreen(2)">
+      Continue to 4-Pin Court Calibration →
+    </button>
+  </section>
+
+  <!-- ================= SCREEN 2: ZONE ASSIGNMENT & 4-PIN CALIBRATION ================= -->
+  <section id="screen2" class="screen">
+    <div class="card">
+      <div class="card-title">
+        <span>Camera Zone &amp; Video Feed</span>
+        <span id="calibBadge" class="pill active">HOMOGRAPHY READY</span>
+      </div>
+      <div class="grid-3" style="margin-bottom:10px;">
+        <div>
+          <label>Assigned Court Zone</label>
+          <select id="zoneSelect" onchange="updateZone()">
+            <option value="north">North Half (from Net Post)</option>
+            <option value="south">South Half (from Net Post)</option>
+            <option value="full">Full Court (Elevated Baseline)</option>
+          </select>
+        </div>
+        <div>
+          <label>Live Camera / Native Capture</label>
+          <div style="display:flex;gap:6px;">
+            <button class="btn primary" style="flex:1;" onclick="startRearCamera()">🎥 Open Rear Camera</button>
+            <button class="btn" style="padding:8px 10px;font-size:11px;" onclick="document.getElementById('nativePhotoCapture').click()" title="Snap photo directly with rear camera">📷 Photo</button>
+          </div>
+          <!-- Single MIME type per capture input so Android launches Samsung Camera instead of Google Photos Picker -->
+          <input type="file" id="nativeCameraCapture" accept="video/*" capture="environment" style="display:none;" onchange="handleNativeMediaFile(this)" />
+          <input type="file" id="nativePhotoCapture" accept="image/*" capture="environment" style="display:none;" onchange="handleNativeMediaFile(this)" />
+          <input type="file" id="galleryMediaPicker" accept="video/*,image/*" style="display:none;" onchange="handleNativeMediaFile(this)" />
+        </div>
+        <div>
+          <label>Court Photo / Video / Auto-Snap</label>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" style="flex:1;" onclick="document.getElementById('galleryMediaPicker').click()">Load Photo/Video</button>
+            <button class="btn green" style="flex:1;" onclick="autoDetectCourtLines()">Auto-Snap Lines</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive Camera + 4-Pin Homography Viewport -->
+      <div class="viewport-container" id="calibViewport">
+        <video id="cameraVideo" playsinline muted></video>
+        <canvas id="calibCanvas" width="960" height="720"></canvas>
+
+        <!-- Top Floating HUD inside Camera View -->
+        <div class="fs-hud-top">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn primary" style="padding:7px 10px;font-size:12px;" onclick="toggleFullscreenCalib()" id="fsToggleBtn">⛶ Fullscreen</button>
+            <button class="btn green" style="padding:7px 10px;font-size:12px;" onclick="autoDetectCourtLines()">✨ Auto-Snap</button>
+            <button class="btn amber" style="padding:7px 10px;font-size:12px;" onclick="rotatePins90()" title="Rotate pins 90° for sideways/landscape phone mount">↻ Rotate 90°</button>
+          </div>
+          <span class="pill active" id="activePinPill" style="background:rgba(0,0,0,0.8);backdrop-filter:blur(4px);">PIN 1 SELECTED</span>
+        </div>
+
+        <!-- 4x Precision Magnifier Loupe (appears while dragging a pin) -->
+        <div class="loupe-box" id="calibLoupe">
+          <canvas id="loupeCanvas" width="118" height="118"></canvas>
+          <div class="loupe-label" id="loupeCoords">4× ZOOM</div>
+        </div>
+
+        <!-- 4 Draggable High-Visibility Pins -->
+        <div class="pin-handle" id="pin0" style="left:22%;top:22%;" data-pin="0">
+          <span class="pin-label">P1: Net Left</span>1
+        </div>
+        <div class="pin-handle" id="pin1" style="left:78%;top:22%;" data-pin="1">
+          <span class="pin-label">P2: Net Right</span>2
+        </div>
+        <div class="pin-handle" id="pin2" style="left:90%;top:82%;" data-pin="2">
+          <span class="pin-label">P3: Base Right</span>3
+        </div>
+        <div class="pin-handle" id="pin3" style="left:10%;top:82%;" data-pin="3">
+          <span class="pin-label">P4: Base Left</span>4
+        </div>
+
+        <!-- Bottom Floating Precision Nudge + Lock HUD -->
+        <div class="fs-hud-bottom">
+          <div class="nudge-bar">
+            <span class="mono" style="font-size:10px;color:var(--optic);margin-right:2px;" id="nudgePinLabel">Fine-Tune P1:</span>
+            <button class="nudge-btn" onclick="nudgeSelectedPin(-0.002, 0)" title="Nudge Left">◄</button>
+            <button class="nudge-btn" onclick="nudgeSelectedPin(0, -0.002)" title="Nudge Up">▲</button>
+            <button class="nudge-btn" onclick="nudgeSelectedPin(0, 0.002)" title="Nudge Down">▼</button>
+            <button class="nudge-btn" onclick="nudgeSelectedPin(0.002, 0)" title="Nudge Right">►</button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn" style="padding:6px 10px;font-size:11px;" onclick="resetPins()">Reset</button>
+            <button class="btn green" style="padding:6px 10px;font-size:11px;" id="fsLockBtn" onclick="toggleLockCalibration()">1. Lock &amp; Ready</button>
+            <button class="btn primary" style="padding:6px 12px;font-size:11px;display:none;" id="fsStartMatchBtn" onclick="startMatchNow()">🎾 Start Match →</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px;">
+        <div class="mono" style="font-size:11px;color:var(--muted);" id="homographyReadout">
+          Drag the 4 pins onto court corners, or tap anywhere on the court to test homography mapping!
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="resetPins()">Reset Pins</button>
+          <button class="btn green" id="lockCalibBtn" onclick="toggleLockCalibration()">1. Lock Calibration &amp; Ready</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pre-Match Connection & Calibration Readiness Gate -->
+    <div class="readiness-card" id="readinessCardScreen2">
+      <div class="card-title" style="margin-bottom:4px;">
+        <span>Pre-Match Court Readiness Check</span>
+        <span class="pill amber" id="overallReadyBadge">WAITING FOR CALIBRATION LOCK</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);">
+        Both players can verify at a glance that all phones are connected and calibrated before walking to the baseline.
+      </div>
+      <div class="ready-grid">
+        <div class="ready-node" id="readyNode1">
+          <div>
+            <div style="font-size:12px;font-weight:800;color:var(--text);">Phone 1 (This Phone • <span id="readyZone1">North Half</span>)</div>
+            <div class="mono" style="font-size:11px;color:var(--muted);" id="readySub1">Step 1: Drag 4 pins &amp; tap Lock Calibration</div>
+          </div>
+          <span class="pill amber" id="readyPill1">NOT LOCKED</span>
+        </div>
+        <div class="ready-node" id="readyNode2">
+          <div>
+            <div style="font-size:12px;font-weight:800;color:var(--text);" id="readyTitle2">Phone 2 (Partner Node • South Half)</div>
+            <div class="mono" style="font-size:11px;color:var(--muted);" id="readySub2">Solo Mode (1 Phone) — No 2nd phone required</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button class="btn" style="padding:4px 8px;font-size:10px;display:none;" id="simPartnerReadyBtn" onclick="togglePartnerSimulatedReady()">Sim Partner Ready</button>
+            <span class="pill green" id="readyPill2">SOLO OK</span>
+          </div>
+        </div>
+      </div>
+      <button class="start-match-btn" id="startMatchBtnScreen2" onclick="startMatchNow()">
+        🔒 Lock 4-Pin Calibration First to Enable Match Start
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>2D Projective Homography Matrix (Pixel u,v → Court Meters x,y)</span></div>
+      <div class="grid-2">
+        <div class="mono" style="font-size:11px;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--border);" id="matrixBox">
+          H = [computing...]
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.45;">
+          <div><strong style="color:var(--text);">ITF Half-Court Dimensions:</strong>Width `8.23m` (Singles) × Length `11.885m` (Net to Baseline), Service Line at `6.40m`.</div>
+          <div id="lastProbeResult" style="margin-top:6px;color:var(--optic);font-family:var(--mono);font-weight:700;">
+            Last Tap Probe: Tap court above to measure exact cm to nearest line.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN 3: BALL TRACKER, WAKE-ON-CROSSING & 2S GESTURE ================= -->
+  <section id="screen3" class="screen">
+    <div class="card">
+      <div class="card-title" style="flex-wrap:wrap;gap:6px;">
+        <span>WebCodecs + WebGL2 GPU Ball &amp; V-Bounce Tracker</span>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span id="gpuEnginePill" class="pill green">WEBGL2 GPU READY</span>
+          <span id="fpsReadout" class="pill active">60 FPS</span>
+        </div>
+      </div>
+
+      <div class="viewport-container" style="margin-bottom:10px;">
+        <canvas id="trackerCanvas" width="640" height="400"></canvas>
+      </div>
+
+      <!-- WebCodecs + WebGL2 Live Controls Bar -->
+      <div style="background:rgba(15,31,24,0.85);padding:10px 12px;border-radius:10px;border:1px solid var(--border);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <button class="btn green" id="gpuModeToggleBtn" onclick="toggleGpuRealTracking()" style="padding:7px 11px;font-size:12px;">
+            🎯 GPU Live Ball Tracker: AUTO
+          </button>
+          <button class="btn" id="gpuHeatmapBtn" onclick="toggleGpuHeatmap()" style="padding:7px 11px;font-size:12px;">
+            🔥 Shader Mask: OFF
+          </button>
+          <button class="btn green" id="gpuAutoCallBtn" onclick="toggleGpuAutoCall()" style="padding:7px 11px;font-size:12px;">
+            🔊 Auto-Call Bounces: ON
+          </button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:210px;justify-content:flex-end;">
+          <span class="mono" style="font-size:11px;color:var(--muted);white-space:nowrap;">Yellow Sensitivity:</span>
+          <input type="range" id="gpuSensSlider" min="0.5" max="1.8" step="0.05" value="1.15" style="max-width:120px;accent-color:var(--optic);" oninput="updateGpuSensitivity(this.value)" />
+          <span class="mono" id="gpuSensLabel" style="font-size:11px;color:var(--optic);min-width:34px;">1.15×</span>
+        </div>
+      </div>
+
+      <div class="grid-3" style="margin-bottom:10px;">
+        <div style="background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--border);">
+          <label>Ball Confidence &amp; Pass</label>
+          <div class="mono" style="font-size:15px;font-weight:800;color:var(--optic);" id="confReadout">WAITING BALL</div>
+          <div class="mono" style="font-size:10px;color:var(--muted);margin-top:2px;" id="gpuPassReadout">WebGL2: 0.3ms • 128×72 grid</div>
+        </div>
+        <div style="background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--border);">
+          <label>Last V-Bounce Vertex</label>
+          <div class="mono" style="font-size:13px;font-weight:800;color:#34d399;" id="wakeStateText">ACTIVE 60FPS</div>
+          <div class="mono" style="font-size:10px;color:var(--muted);margin-top:2px;" id="lastVBounceReadout">No bounce vertex yet</div>
+        </div>
+        <div style="background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--border);">
+          <label>2.0s Hand Gesture Ring</label>
+          <div class="mono" style="font-size:14px;font-weight:800;color:var(--amber);" id="gestureReadout">0.0s / 2.0s</div>
+          <div class="mono" style="font-size:10px;color:var(--muted);margin-top:2px;">Hold hand in top-right ROI</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn primary" onclick="triggerSimulatedShot('in_deep')">Fire Deep Corner Shot (IN)</button>
+        <button class="btn red" onclick="triggerSimulatedShot('out_long')">Fire Baseline Shot (OUT)</button>
+        <button class="btn amber" onclick="triggerSimulatedShot('unsighted')">Simulate Blocked Sightline (&lt;70%)</button>
+        <button class="btn" id="wakeToggleBtn" onclick="toggleWakeSaver()">Toggle Idle Low-Power</button>
+        <button class="btn blue" onmousedown="startHoldGesture()" onmouseup="stopHoldGesture()" ontouchstart="startHoldGesture()" ontouchend="stopHoldGesture()">
+          Hold 2.0s Hand Gesture (Hands-Free Override)
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN 4: LIVE AUDIO UMPIRE & 5S GRACE WINDOW ================= -->
+  <section id="screen4" class="screen">
+    <div class="readiness-card" id="readinessCardScreen4" style="padding:10px 12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span class="pill green" id="umpireConnPill">🔗 NODE SYNC: OK</span>
+          <span class="pill amber" id="umpireCalibPill">📐 CALIB: UNLOCKED</span>
+          <span class="pill amber" id="umpireMatchStatePill">⏳ PRE-MATCH STANDBY</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn primary" id="startMatchBtnScreen4" onclick="startMatchNow()" style="padding:8px 14px;font-size:13px;">
+            🎾 READY — START MATCH (0–0)
+          </button>
+          <button class="btn red" id="endMatchBtnScreen4" onclick="endMatchNow('Manual End Match')" style="padding:8px 14px;font-size:13px;display:none;">
+            🏁 End Match
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Final Match Summary Banner (shown when match ends automatically or manually) -->
+    <div class="card" id="matchSummaryCard" style="display:none;border:2px solid var(--optic);background:linear-gradient(180deg, rgba(217,255,0,0.14), rgba(11,23,18,0.98));">
+      <div class="card-title">
+        <span style="color:var(--optic);font-size:14px;">🏆 MATCH COMPLETED — FINAL SUMMARY</span>
+        <span class="pill green" id="summaryReasonPill">GAME, SET &amp; MATCH</span>
+      </div>
+      <div style="font-size:22px;font-weight:900;color:#fff;margin-bottom:4px;" id="summaryWinnerText">
+        Winner: Nugra
+      </div>
+      <div class="mono" style="font-size:13px;color:var(--optic);margin-bottom:12px;" id="summaryScoreLine">
+        Final Score: 2–0 Sets | Total Points: 0
+      </div>
+      <div class="grid-3" style="margin-bottom:12px;">
+        <div style="background:var(--bg);padding:9px;border-radius:8px;border:1px solid var(--border);">
+          <label>Total Points</label>
+          <div class="mono" style="font-size:16px;font-weight:800;color:#fff;" id="statTotalPts">0</div>
+        </div>
+        <div style="background:var(--bg);padding:9px;border-radius:8px;border:1px solid var(--border);">
+          <label>Points Won (A / B)</label>
+          <div class="mono" style="font-size:16px;font-weight:800;color:var(--optic);" id="statPtsSplit">0 / 0</div>
+        </div>
+        <div style="background:var(--bg);padding:9px;border-radius:8px;border:1px solid var(--border);">
+          <label>Match Status</label>
+          <div class="mono" style="font-size:13px;font-weight:800;color:#34d399;">LOCKED • ENDED</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn primary" style="flex:1;padding:12px;" onclick="resetMatch(); startMatchNow();">
+          🎾 Start New Match (0–0)
+        </button>
+        <button class="btn" style="padding:12px;" onclick="resumeEndedMatch()">
+          ↩️ Resume / Keep Playing
+        </button>
+      </div>
+    </div>
+    <!-- High-Contrast Sunlight Scoreboard -->
+    <div class="scoreboard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;color:var(--muted);font-family:var(--mono);">
+        <span id="matchFormatLabel">STANDARD 3-SET • SINGLES</span>
+        <span>SETS | GAMES | POINTS</span>
+      </div>
+      <div class="score-row">
+        <div class="player-name">
+          <span class="serve-dot" id="serveDotA"></span>
+          <span id="scoreNameA">Nugra</span>
+        </div>
+        <div class="score-cell" id="setsA">0</div>
+        <div class="score-cell" id="gamesA">0</div>
+        <div class="score-cell pts" id="ptsA">0</div>
+      </div>
+      <div class="score-row">
+        <div class="player-name">
+          <span class="serve-dot" id="serveDotB" style="opacity:0.15;"></span>
+          <span id="scoreNameB">Partner / Rival</span>
+        </div>
+        <div class="score-cell" id="setsB">0</div>
+        <div class="score-cell" id="gamesB">0</div>
+        <div class="score-cell pts" id="ptsB">0</div>
+      </div>
+    </div>
+
+    <!-- Live Call Banner -->
+    <div class="call-banner in" id="liveCallBanner">
+      <div class="call-title" id="liveCallTitle">READY — PLAY</div>
+      <div class="call-sub" id="liveCallSub">Homography Locked • Web Speech Audio Umpire Enabled</div>
+    </div>
+
+    <!-- 5-Second Post-Point Grace Window -->
+    <div class="grace-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;font-weight:800;color:var(--amber);text-transform:uppercase;">
+          5-Second Grace Intervention Window
+        </span>
+        <span class="mono" style="font-size:13px;font-weight:800;" id="graceTimerText">STANDBY (5.0s)</span>
+      </div>
+      <div class="grace-progress-bg">
+        <div class="grace-progress-fill" id="graceProgressFill"></div>
+      </div>
+      <div class="grid-2" style="margin-bottom:8px;">
+        <button class="btn amber" onclick="overrideLastCall('overrule')">1. Overrule Call (In ↔ Out)</button>
+        <button class="btn blue" onclick="overrideLastCall('fault_let')">2. Call Fault / First-Serve Let</button>
+        <button class="btn" onclick="overrideLastCall('flip_winner')">3. Flip Last Point Winner</button>
+        <button class="btn red" onclick="overrideLastCall('replay')">4. Replay Point (Let)</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;">
+        <button class="btn primary" style="flex:1;" onmousedown="startHoldGesture()" onmouseup="stopHoldGesture()" ontouchstart="startHoldGesture()" ontouchend="stopHoldGesture()">
+          ✋ Hold 2.0s Hand Gesture Override
+        </button>
+        <button class="btn" onclick="toggleVoiceMute()" id="voiceBtn">🔊 Audio Umpire: ON</button>
+      </div>
+    </div>
+
+    <!-- Quick Rally Simulator & Manual Point Controls -->
+    <div class="card">
+      <div class="card-title"><span>Court-Side Shot Triggers &amp; Manual Score Controls</span></div>
+      <div class="grid-2" style="margin-bottom:8px;">
+        <button class="btn green" onclick="triggerSimulatedShot('in_deep')">Simulate Shot IN (14 cm inside)</button>
+        <button class="btn red" onclick="triggerSimulatedShot('out_long')">Simulate Baseline OUT (9 cm long)</button>
+        <button class="btn red" onclick="triggerSimulatedShot('serve_fault')">Simulate Serve FAULT (7 cm long)</button>
+        <button class="btn amber" onclick="triggerSimulatedShot('unsighted')">Simulate Unsighted (&lt;70% Conf)</button>
+      </div>
+      <div class="grid-2" style="margin-bottom:8px;">
+        <button class="btn" onclick="awardPoint('A', 'Manual +1 Point A', true)">+ Point <span id="btnNameA">Nugra</span></button>
+        <button class="btn" onclick="awardPoint('B', 'Manual +1 Point B', true)">+ Point <span id="btnNameB">Rival</span></button>
+      </div>
+      <div class="grid-2">
+        <button class="btn red" onclick="endMatchNow('Ended by Player')">🏁 End Match Now</button>
+        <button class="btn" onclick="resetMatch()">🔄 Reset Score (0–0)</button>
+      </div>
+    </div>
+
+    <!-- Point-by-Point Editable History Log -->
+    <div class="card">
+      <div class="card-title">
+        <span>Point-by-Point History Log (Tap Any Point to Flip/Edit)</span>
+        <span class="mono" id="pointCountBadge" style="font-size:11px;color:var(--muted);">0 Points</span>
+      </div>
+      <div class="log-list" id="pointHistoryList">
+        <div class="log-item" style="color:var(--muted);">No points played yet — trigger a shot or tap + Point above.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ============================================================================
+   1. STATE & TENNIS SCORE ENGINE
+   ============================================================================ */
+const state = {
+  topology: 'solo',
+  role: 'host',
+  format: 'std3',
+  zone: 'north',
+  playerA: 'Nugra',
+  playerB: 'Partner / Rival',
+  server: 'A',
+  setsA: 0, setsB: 0,
+  gamesA: 0, gamesB: 0,
+  ptsA: 0, ptsB: 0,
+  voiceEnabled: true,
+  calibLocked: false,
+  partnerConnected: false,
+  partnerCalibLocked: false,
+  matchStarted: false,
+  matchEnded: false,
+  matchWinner: null,
+  useSimVideo: true,
+  wakeActive: true,
+  roomCode: '',
+  peer: null,
+  connections: [],
+  // 4 pins in normalized [0..1] viewport coordinates:
+  // P0: Net Left, P1: Net Right, P2: Baseline Right, P3: Baseline Left
+  pins: [
+    { u: 0.22, v: 0.22 },
+    { u: 0.78, v: 0.22 },
+    { u: 0.90, v: 0.82 },
+    { u: 0.10, v: 0.82 }
+  ],
+  homography: null,
+  lastProbe: null,
+  // Simulated ball trajectory
+  ball: {
+    u: 0.5, v: 0.2,
+    vu: 0.004, vv: 0.009,
+    targetU: 0.74, targetV: 0.75,
+    bounced: false,
+    conf: 0.94,
+    mode: 'rally',
+    trail: []
+  },
+  graceTimer: 0,
+  graceInterval: null,
+  gestureHoldStart: 0,
+  gestureProgress: 0,
+  gestureTimer: null,
+  history: []
+};
+
+// ITF Half-court target rectangle in meters:
+// x in [0, 8.23] (Singles width), y in [0, 11.885] (Net=0 to Baseline=11.885, Service Line=6.40)
+const COURT_W = 8.23;
+const COURT_L = 11.885;
+const SERVICE_L = 6.40;
+
+function switchScreen(num) {
+  document.querySelectorAll('.screen').forEach((el, idx) => {
+    el.classList.toggle('active', idx === num - 1);
+  });
+  document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
+    btn.classList.toggle('active', idx === num - 1);
+  });
+}
+
+function selectTopology(mode, cardEl) {
+  state.topology = mode;
+  document.querySelectorAll('#topologyCards .mode-card').forEach(c => c.classList.remove('selected'));
+  cardEl.classList.add('selected');
+  const labelMap = {
+    solo: '1 PHONE (SOLO)',
+    mvp2: '2 PHONES (NET POST)',
+    pro4: '3-4 PHONES (PRO)'
+  };
+  document.getElementById('peerCountPill').textContent = labelMap[mode] || '1 PHONE';
+  updateReadinessUI();
+}
+
+function setNodeRole(role) {
+  state.role = role;
+  const pill = document.getElementById('rolePill');
+  pill.textContent = role === 'host' ? 'HOST NODE' : 'CAMERA NODE';
+}
+
+function updatePlayerNames() {
+  state.playerA = document.getElementById('playerAInput').value.trim() || 'Player A';
+  state.playerB = document.getElementById('playerBInput').value.trim() || 'Player B';
+  document.getElementById('scoreNameA').textContent = state.playerA;
+  document.getElementById('scoreNameB').textContent = state.playerB;
+  document.getElementById('btnNameA').textContent = state.playerA;
+  document.getElementById('btnNameB').textContent = state.playerB;
+}
+
+function updateFormat() {
+  state.format = document.getElementById('formatSelect').value;
+  const map = {
+    std3: 'STANDARD 3-SET • AD SCORING',
+    fast4: 'FAST4 FORMAT • NO-AD SCORING',
+    tb10: '10-POINT MATCH TIEBREAK'
+  };
+  document.getElementById('matchFormatLabel').textContent = map[state.format];
+  resetMatch();
+}
+
+function updateZone() {
+  state.zone = document.getElementById('zoneSelect').value;
+  updateReadinessUI();
+}
+
+/* ============================================================================
+   2. REAL MULTI-PHONE WEBRTC PAIRING (PeerJS + QR Code)
+   ============================================================================ */
+function initPairing() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  state.roomCode = code;
+  document.getElementById('roomCodeDisplay').textContent = code;
+
+  const pairUrl = window.location.href.split('?')[0] + '?join=' + code;
+  const qrContainer = document.getElementById('qrBox');
+  qrContainer.innerHTML = '';
+  if (window.QRCode) {
+    new QRCode(qrContainer, {
+      text: pairUrl,
+      width: 104,
+      height: 104,
+      colorDark: '#000000',
+      colorLight: '#ffffff'
+    });
+  } else {
+    qrContainer.innerHTML = '<div style="color:#000;font-size:10px;text-align:center;font-weight:800;">QR READY<br/>' + code + '</div>';
+  }
+
+  if (window.Peer) {
+    try {
+      const peerId = 'tennis-umpire-' + code;
+      state.peer = new Peer(peerId);
+      state.peer.on('open', () => {
+        const badge = document.getElementById('peerStateBadge');
+        badge.textContent = 'WEBRTC ONLINE';
+        badge.className = 'pill green';
+      });
+      state.peer.on('connection', (conn) => {
+        state.connections.push(conn);
+        state.partnerConnected = true;
+        document.getElementById('peerLog').textContent = 'Connected Camera Node: ' + conn.peer + ' (' + state.connections.length + ' active)';
+        conn.on('open', () => {
+          conn.send({ type: 'node_status', calibLocked: state.calibLocked, zone: state.zone });
+        });
+        conn.on('data', (data) => handleIncomingPeerPacket(data));
+        updateReadinessUI();
+      });
+      state.peer.on('error', () => {
+        const badge = document.getElementById('peerStateBadge');
+        badge.textContent = 'LOCAL / OFFLINE READY';
+        badge.className = 'pill active';
+      });
+    } catch (e) {
+      document.getElementById('peerStateBadge').textContent = 'LOCAL MODE READY';
+    }
+  } else {
+    document.getElementById('peerStateBadge').textContent = 'LOCAL MODE READY';
+  }
+
+  // Auto-populate join code if opened via QR link
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('join')) {
+    document.getElementById('joinCodeInput').value = params.get('join');
+    document.getElementById('nodeRoleSelect').value = 'camera';
+    setNodeRole('camera');
+  }
+}
+
+function joinHostRoom() {
+  const code = document.getElementById('joinCodeInput').value.trim().toUpperCase();
+  if (!code) return;
+  if (state.peer && window.Peer) {
+    const conn = state.peer.connect('tennis-umpire-' + code);
+    conn.on('open', () => {
+      state.connections.push(conn);
+      state.partnerConnected = true;
+      conn.send({ type: 'node_status', calibLocked: state.calibLocked, zone: state.zone });
+      conn.on('data', (data) => handleIncomingPeerPacket(data));
+      document.getElementById('peerLog').textContent = 'Joined Host Room ' + code + ' — streaming <1KB bounce JSON packets!';
+      updateReadinessUI();
+    });
+  } else {
+    document.getElementById('peerLog').textContent = 'Simulated link to Host Room ' + code + ' active.';
+  }
+}
+
+function broadcastPeerPacket(packet) {
+  const payloadStr = JSON.stringify(packet);
+  state.connections.forEach(c => {
+    try { c.send(packet); } catch (e) {}
+  });
+  document.getElementById('peerLog').textContent =
+    'Sent ' + payloadStr.length + 'B JSON packet: ' + payloadStr;
+}
+
+function handleIncomingPeerPacket(packet) {
+  document.getElementById('peerLog').textContent = 'Received remote node packet: ' + JSON.stringify(packet);
+  if (packet.type === 'bounce') {
+    processClassifiedBounce(packet.Verdict, packet.distCm, packet.lineLabel, packet.shotType);
+  } else if (packet.type === 'node_status') {
+    state.partnerConnected = true;
+    state.partnerCalibLocked = !!packet.calibLocked;
+    updateReadinessUI();
+    if (state.partnerCalibLocked) {
+      speakCall('Partner camera calibrated and ready');
+    }
+  } else if (packet.type === 'start_match') {
+    state.partnerConnected = true;
+    state.partnerCalibLocked = true;
+    startMatchNow(true);
+  } else if (packet.type === 'end_match') {
+    endMatchNow(packet.reason || 'Ended by Partner Phone', true);
+  }
+}
+
+function simulatePeerPing() {
+  const sample = {
+    type: 'bounce',
+    node: 'Phone2-SouthNetPost',
+    ts: Date.now(),
+    courtXY: [7.92, 11.74],
+    Verdict: 'IN',
+    distCm: 14.5,
+    lineLabel: 'Baseline',
+    bytes: 148
+  };
+  broadcastPeerPacket(sample);
+}
+
+/* ============================================================================
+   3. 2D PROJECTIVE HOMOGRAPHY SOLVER (4-Pin Pixel (u,v) -> Court Meters (x,y))
+   ============================================================================ */
+function solveLinearSystem8x8(A, b) {
+  const n = 8;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let i = 0; i < n; i++) {
+    let maxRow = i;
+    for (let k = i + 1; k < n; k++) {
+      if (Math.abs(M[k][i]) > Math.abs(M[maxRow][i])) maxRow = k;
+    }
+    const tmp = M[i]; M[i] = M[maxRow]; M[maxRow] = tmp;
+    const pivot = M[i][i];
+    if (Math.abs(pivot) < 1e-12) continue;
+    for (let j = i; j <= n; j++) M[i][j] /= pivot;
+    for (let k = 0; k < n; k++) {
+      if (k !== i) {
+        const factor = M[k][i];
+        for (let j = i; j <= n; j++) M[k][j] -= factor * M[i][j];
+      }
+    }
+  }
+  return M.map(row => row[n]);
+}
+
+function computeHomographyFromPins() {
+  // Source points: 4 draggable pins in normalized (u,v)
+  // Destination points: ITF Singles Half-Court corners in meters (x,y)
+  const dst = [
+    { x: 0,       y: 0 },       // P1: Net Left
+    { x: COURT_W, y: 0 },       // P2: Net Right
+    { x: COURT_W, y: COURT_L }, // P3: Baseline Right
+    { x: 0,       y: COURT_L }  // P4: Baseline Left
+  ];
+  const A = [];
+  const b = [];
+  for (let i = 0; i < 4; i++) {
+    const u = state.pins[i].u;
+    const v = state.pins[i].v;
+    const x = dst[i].x;
+    const y = dst[i].y;
+    A.push([u, v, 1, 0, 0, 0, -u * x, -v * x]);
+    b.push(x);
+    A.push([0, 0, 0, u, v, 1, -u * y, -v * y]);
+    b.push(y);
+  }
+  const h = solveLinearSystem8x8(A, b);
+  state.homography = [...h, 1];
+  const fmt = (n) => (n >= 0 ? ' ' : '') + n.toFixed(2);
+  document.getElementById('matrixBox').innerHTML =
+    `H = [ ${fmt(h[0])}, ${fmt(h[1])}, ${fmt(h[2])} ]<br/>` +
+    `    [ ${fmt(h[3])}, ${fmt(h[4])}, ${fmt(h[5])} ]<br/>` +
+    `    [ ${fmt(h[6])}, ${fmt(h[7])},  1.00 ]`;
+}
+
+// Inverse mapping Court (x,y) -> Pixel (u,v) for drawing derived Service Line & Center Service Line
+function courtToPixel(x, y) {
+  const p0 = state.pins[0], p1 = state.pins[1], p2 = state.pins[2], p3 = state.pins[3];
+  const s = x / COURT_W;
+  const t = y / COURT_L;
+  const topU = p0.u * (1 - s) + p1.u * s;
+  const topV = p0.v * (1 - s) + p1.v * s;
+  const botU = p3.u * (1 - s) + p2.u * s;
+  const botV = p3.v * (1 - s) + p2.v * s;
+  return {
+    u: topU * (1 - t) + botU * t,
+    v: topV * (1 - t) + botV * t
+  };
+}
+
+function pixelToCourt(u, v) {
+  if (!state.homography) computeHomographyFromPins();
+  const h = state.homography;
+  const denom = h[6] * u + h[7] * v + 1.0;
+  const x = (h[0] * u + h[1] * v + h[2]) / denom;
+  const y = (h[3] * u + h[4] * v + h[5]) / denom;
+  return { x, y };
+}
+
+function classifyCourtBounce(x, y, isServe = false) {
+  const maxL = isServe ? SERVICE_L : COURT_L;
+  const inWidth = x >= 0 && x <= COURT_W;
+  const inLength = y >= 0 && y <= maxL;
+  const isIn = inWidth && inLength;
+
+  // Distance to nearest relevant boundary line in cm
+  const dLeft = Math.abs(x - 0);
+  const dRight = Math.abs(COURT_W - x);
+  const dLine = Math.abs(maxL - y);
+  const minDistMeters = Math.min(dLeft, dRight, dLine);
+  const distCm = Math.round(minDistMeters * 100);
+  let nearestLine = isServe ? 'Service Line' : 'Baseline';
+  if (minDistMeters === dLeft || minDistMeters === dRight) nearestLine = 'Sideline';
+
+  return {
+    isIn,
+    verdict: isIn ? 'IN' : (isServe ? 'FAULT' : 'OUT'),
+    distCm,
+    nearestLine,
+    x, y
+  };
+}
+
+/* ============================================================================
+   4. DRAGGABLE 4-PIN CALIBRATION + CAMERA / SIMULATED VIDEO LOOP
+   ============================================================================ */
+state.selectedPin = 0;
+state.isFullscreenCalib = false;
+
+function toggleFullscreenCalib() {
+  const viewport = document.getElementById('calibViewport');
+  const btn = document.getElementById('fsToggleBtn');
+  state.isFullscreenCalib = !state.isFullscreenCalib;
+  viewport.classList.toggle('fullscreen-calib', state.isFullscreenCalib);
+  btn.textContent = state.isFullscreenCalib ? '✕ Exit Fullscreen' : '⛶ Fullscreen Calib';
+}
+
+function selectPinForNudge(idx) {
+  state.selectedPin = idx;
+  const names = ['P1 (Net Left)', 'P2 (Net Right)', 'P3 (Base Right)', 'P4 (Base Left)'];
+  const pill = document.getElementById('activePinPill');
+  const lbl = document.getElementById('nudgePinLabel');
+  if (pill) pill.textContent = names[idx] || ('PIN ' + (idx + 1));
+  if (lbl) lbl.textContent = 'Fine-Tune P' + (idx + 1) + ':';
+}
+
+function nudgeSelectedPin(du, dv) {
+  if (state.calibLocked) return;
+  const idx = state.selectedPin || 0;
+  const p = state.pins[idx];
+  p.u = Math.max(0.01, Math.min(0.99, p.u + du));
+  p.v = Math.max(0.01, Math.min(0.99, p.v + dv));
+  syncPinsToDOM();
+  renderLoupeAt(idx, p.u, p.v, true);
+}
+
+function renderLoupeAt(pinIdx, u, v, autoHide = false) {
+  const viewport = document.getElementById('calibViewport');
+  const loupe = document.getElementById('calibLoupe');
+  const lCanvas = document.getElementById('loupeCanvas');
+  const srcCanvas = document.getElementById('calibCanvas');
+  if (!loupe || !lCanvas || !srcCanvas) return;
+
+  loupe.style.display = 'block';
+  const rect = viewport.getBoundingClientRect();
+  // Keep loupe above finger, or below if dragging near top HUD
+  let leftPx = u * rect.width - 59;
+  let topPx = v * rect.height - 148;
+  if (topPx < 58) topPx = v * rect.height + 42;
+  leftPx = Math.max(10, Math.min(rect.width - 128, leftPx));
+  loupe.style.left = leftPx + 'px';
+  loupe.style.top = topPx + 'px';
+
+  const lctx = lCanvas.getContext('2d');
+  const W = lCanvas.width, H = lCanvas.height;
+  lctx.clearRect(0, 0, W, H);
+
+  // 3.5x Zoom crop around exact (u, v) on the aspect-matched calibCanvas
+  const cropW = W / 2.6;
+  const cropH = H / 2.6;
+  const sx = u * srcCanvas.width - cropW / 2;
+  const sy = v * srcCanvas.height - cropH / 2;
+  lctx.drawImage(srcCanvas, sx, sy, cropW, cropH, 0, 0, W, H);
+
+  // Precision crosshair inside loupe
+  lctx.strokeStyle = '#d9ff00';
+  lctx.lineWidth = 1.5;
+  lctx.beginPath();
+  lctx.moveTo(W / 2, 0); lctx.lineTo(W / 2, H);
+  lctx.moveTo(0, H / 2); lctx.lineTo(W, H / 2);
+  lctx.stroke();
+
+  lctx.beginPath();
+  lctx.arc(W / 2, H / 2, 3.5, 0, Math.PI * 2);
+  lctx.fillStyle = '#ef4444';
+  lctx.fill();
+
+  document.getElementById('loupeCoords').textContent =
+    `P${pinIdx + 1}: ${(u * 100).toFixed(1)}%, ${(v * 100).toFixed(1)}%`;
+
+  if (autoHide) {
+    clearTimeout(state.loupeHideTimer);
+    state.loupeHideTimer = setTimeout(() => {
+      loupe.style.display = 'none';
+    }, 1300);
+  }
+}
+
+function syncPinsToDOM() {
+  state.pins.forEach((p, idx) => {
+    const el = document.getElementById('pin' + idx);
+    if (el) {
+      el.style.left = (p.u * 100).toFixed(2) + '%';
+      el.style.top = (p.v * 100).toFixed(2) + '%';
+      // Keep label inside viewport near edges
+      const lbl = el.querySelector('.pin-label');
+      if (lbl) {
+        if (p.u < 0.18) { lbl.style.left = '0px'; lbl.style.right = 'auto'; }
+        else if (p.u > 0.82) { lbl.style.right = '0px'; lbl.style.left = 'auto'; }
+        else { lbl.style.left = 'auto'; lbl.style.right = 'auto'; }
+      }
+    }
+  });
+  computeHomographyFromPins();
+}
+
+function setupPinDragging() {
+  const viewport = document.getElementById('calibViewport');
+  const loupe = document.getElementById('calibLoupe');
+  let activePinIndex = null;
+
+  function pointerToUV(e) {
+    const rect = viewport.getBoundingClientRect();
+    const u = Math.max(0.03, Math.min(0.97, (e.clientX - rect.left) / rect.width));
+    const v = Math.max(0.08, Math.min(0.89, (e.clientY - rect.top) / rect.height));
+    return { u, v };
+  }
+
+  document.querySelectorAll('.pin-handle').forEach(pinEl => {
+    pinEl.addEventListener('pointerdown', (e) => {
+      if (state.calibLocked) return;
+      e.preventDefault();
+      e.stopPropagation();
+      activePinIndex = parseInt(pinEl.getAttribute('data-pin'), 10);
+      selectPinForNudge(activePinIndex);
+      pinEl.setPointerCapture(e.pointerId);
+      const p = state.pins[activePinIndex];
+      renderLoupeAt(activePinIndex, p.u, p.v, false);
+    });
+    pinEl.addEventListener('pointermove', (e) => {
+      if (activePinIndex === null || state.calibLocked) return;
+      e.preventDefault();
+      const { u, v } = pointerToUV(e);
+      state.pins[activePinIndex] = { u, v };
+      syncPinsToDOM();
+      renderLoupeAt(activePinIndex, u, v, false);
+    });
+    const endDrag = () => {
+      activePinIndex = null;
+      if (loupe) loupe.style.display = 'none';
+    };
+    pinEl.addEventListener('pointerup', endDrag);
+    pinEl.addEventListener('pointercancel', endDrag);
+  });
+
+  // Also allow dragging nearest pin if unlocked, or probing bounce when locked
+  viewport.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.pin-handle') || e.target.closest('.fs-hud-top') || e.target.closest('.fs-hud-bottom')) return;
+    const rect = viewport.getBoundingClientRect();
+    const u = (e.clientX - rect.left) / rect.width;
+    const v = (e.clientY - rect.top) / rect.height;
+
+    if (!state.calibLocked) {
+      // Find if touch is within 12% of a pin; if so, select and move that pin smoothly
+      let bestIdx = -1, bestDist = 0.12;
+      state.pins.forEach((p, idx) => {
+        const d = Math.hypot(p.u - u, p.v - v);
+        if (d < bestDist) { bestDist = d; bestIdx = idx; }
+      });
+      if (bestIdx !== -1) {
+        selectPinForNudge(bestIdx);
+        state.pins[bestIdx] = {
+          u: Math.max(0.03, Math.min(0.97, u)),
+          v: Math.max(0.08, Math.min(0.89, v))
+        };
+        syncPinsToDOM();
+        renderLoupeAt(bestIdx, state.pins[bestIdx].u, state.pins[bestIdx].v, true);
+      }
+      return;
+    }
+
+    // When calibration is LOCKED, tapping tests a bounce probe at (u, v)
+    const pt = pixelToCourt(u, v);
+    const res = classifyCourtBounce(pt.x, pt.y, false);
+    state.lastProbe = { u, v, ...res };
+    document.getElementById('lastProbeResult').textContent =
+      `Probe (${pt.x.toFixed(2)}m, ${pt.y.toFixed(2)}m) → ${res.verdict} (${res.distCm} cm from ${res.nearestLine})`;
+    processClassifiedBounce(res.verdict, res.distCm, res.nearestLine, 'Probe Tap');
+  });
+
+  syncPinsToDOM();
+}
+
+function resetPins() {
+  state.calibLocked = false;
+  document.getElementById('lockCalibBtn').textContent = 'Lock Calibration';
+  state.pins = [
+    { u: 0.22, v: 0.22 },
+    { u: 0.78, v: 0.22 },
+    { u: 0.90, v: 0.82 },
+    { u: 0.10, v: 0.82 }
+  ];
+  state.pins.forEach((p, idx) => {
+    const el = document.getElementById('pin' + idx);
+    el.style.left = (p.u * 100) + '%';
+    el.style.top = (p.v * 100) + '%';
+  });
+  computeHomographyFromPins();
+}
+
+function toggleLockCalibration() {
+  state.calibLocked = !state.calibLocked;
+  const btn = document.getElementById('lockCalibBtn');
+  const badge = document.getElementById('calibBadge');
+  const fsLockBtn = document.getElementById('fsLockBtn');
+  if (state.calibLocked) {
+    btn.textContent = 'Unlock Pins';
+    if (fsLockBtn) fsLockBtn.textContent = '✓ Locked (Tap to Edit)';
+    badge.textContent = 'LOCKED & CALIBRATED';
+    badge.className = 'pill green';
+    speakCall('Camera calibration locked and ready');
+  } else {
+    state.matchStarted = false;
+    btn.textContent = '1. Lock Calibration & Ready';
+    if (fsLockBtn) fsLockBtn.textContent = '1. Lock & Ready';
+    badge.textContent = 'EDITING 4 PINS';
+    badge.className = 'pill active';
+  }
+  broadcastPeerPacket({ type: 'node_status', calibLocked: state.calibLocked, zone: state.zone });
+  updateReadinessUI();
+}
+
+function togglePartnerSimulatedReady() {
+  state.partnerConnected = true;
+  state.partnerCalibLocked = !state.partnerCalibLocked;
+  updateReadinessUI();
+  if (state.partnerCalibLocked) {
+    speakCall('Phone 2 South Camera connected and calibrated');
+  }
+}
+
+function isAllCamerasReady() {
+  if (!state.calibLocked) return false;
+  if (state.topology === 'solo') return true;
+  return state.partnerConnected && state.partnerCalibLocked;
+}
+
+function updateReadinessUI() {
+  const zoneLabelMap = { north: 'North Half', south: 'South Half', full: 'Full Court' };
+  const zLbl = document.getElementById('readyZone1');
+  if (zLbl) zLbl.textContent = zoneLabelMap[state.zone] || 'North Half';
+
+  // Node 1 (This Phone)
+  const node1 = document.getElementById('readyNode1');
+  const sub1 = document.getElementById('readySub1');
+  const pill1 = document.getElementById('readyPill1');
+  if (state.calibLocked) {
+    node1.classList.add('ok');
+    sub1.textContent = (state.useSimVideo ? 'Simulated Feed' : 'Live Camera') + ' • 4 Corners Locked';
+    pill1.textContent = '✅ READY';
+    pill1.className = 'pill green';
+  } else {
+    node1.classList.remove('ok');
+    sub1.textContent = 'Step 1: Drag 4 pins onto corners & tap Lock';
+    pill1.textContent = '⏳ UNLOCKED';
+    pill1.className = 'pill amber';
+  }
+
+  // Node 2 (Partner Phone or Solo Mode)
+  const node2 = document.getElementById('readyNode2');
+  const sub2 = document.getElementById('readySub2');
+  const pill2 = document.getElementById('readyPill2');
+  const simBtn = document.getElementById('simPartnerReadyBtn');
+
+  if (state.topology === 'solo') {
+    node2.classList.add('ok');
+    sub2.textContent = '1-Phone Solo Mode — Partner camera not needed';
+    pill2.textContent = '✅ SOLO MODE';
+    pill2.className = 'pill green';
+    if (simBtn) simBtn.style.display = 'none';
+  } else {
+    if (simBtn) simBtn.style.display = 'inline-block';
+    if (state.partnerConnected && state.partnerCalibLocked) {
+      node2.classList.add('ok');
+      sub2.textContent = 'P2P Linked • South Half 4-Pin Calibrated';
+      pill2.textContent = '✅ READY';
+      pill2.className = 'pill green';
+      if (simBtn) simBtn.textContent = 'Unready P2';
+    } else if (state.partnerConnected) {
+      node2.classList.remove('ok');
+      sub2.textContent = 'Connected via WebRTC — Waiting for P2 Lock...';
+      pill2.textContent = '⏳ CALIBRATING';
+      pill2.className = 'pill amber';
+      if (simBtn) simBtn.textContent = 'Sim P2 Lock';
+    } else {
+      node2.classList.remove('ok');
+      sub2.textContent = 'Scan QR in Tab 1 (or tap Sim Partner Ready to test)';
+      pill2.textContent = '⏳ NOT PAIRED';
+      pill2.className = 'pill amber';
+      if (simBtn) simBtn.textContent = 'Sim Partner Ready';
+    }
+  }
+
+  const allReady = isAllCamerasReady();
+  const card2 = document.getElementById('readinessCardScreen2');
+  const badge = document.getElementById('overallReadyBadge');
+  const btn2 = document.getElementById('startMatchBtnScreen2');
+  const fsStartBtn = document.getElementById('fsStartMatchBtn');
+
+  if (state.matchStarted) {
+    card2.classList.add('all-ready');
+    badge.textContent = '🎾 MATCH LIVE';
+    badge.className = 'pill green';
+    btn2.className = 'start-match-btn live';
+    btn2.textContent = '🎾 MATCH IN PROGRESS — GO TO LIVE SCOREBOARD →';
+    if (fsStartBtn) {
+      fsStartBtn.style.display = 'inline-block';
+      fsStartBtn.textContent = '🎾 Scoreboard →';
+    }
+  } else if (allReady) {
+    card2.classList.add('all-ready');
+    badge.textContent = '✅ ALL CAMERAS CALIBRATED & READY';
+    badge.className = 'pill green';
+    btn2.className = 'start-match-btn armed';
+    btn2.textContent = '🎾 ALL CAMERAS READY — TAP TO START MATCH (0–0, PLAY!)';
+    if (fsStartBtn) {
+      fsStartBtn.style.display = 'inline-block';
+      fsStartBtn.textContent = '🎾 Start Match →';
+    }
+  } else {
+    card2.classList.remove('all-ready');
+    badge.textContent = state.calibLocked ? 'WAITING FOR PHONE 2 READY' : 'WAITING FOR CALIBRATION LOCK';
+    badge.className = 'pill amber';
+    btn2.className = 'start-match-btn';
+    btn2.textContent = state.calibLocked
+      ? '⏳ Waiting for Phone 2 to Lock Calibration (or Tap Now to Force Start)'
+      : '🔒 Step 1: Tap "1. Lock Calibration & Ready" Above First';
+    if (fsStartBtn) {
+      fsStartBtn.style.display = state.calibLocked ? 'inline-block' : 'none';
+    }
+  }
+
+  // Update Screen 4 top status pills
+  const connPill = document.getElementById('umpireConnPill');
+  const calibPill = document.getElementById('umpireCalibPill');
+  const matchPill = document.getElementById('umpireMatchStatePill');
+  const btn4 = document.getElementById('startMatchBtnScreen4');
+  if (connPill) {
+    connPill.textContent = state.topology === 'solo'
+      ? '📱 SOLO NODE: OK'
+      : (state.partnerConnected ? '🔗 2 PHONES LINKED' : '⚠️ P2 UNLINKED');
+    connPill.className = (state.topology === 'solo' || state.partnerConnected) ? 'pill green' : 'pill amber';
+  }
+  if (calibPill) {
+    calibPill.textContent = state.calibLocked ? '📐 CALIB: LOCKED' : '📐 CALIB: UNLOCKED';
+    calibPill.className = state.calibLocked ? 'pill green' : 'pill amber';
+  }
+  if (matchPill) {
+    matchPill.textContent = state.matchStarted ? '🎾 MATCH LIVE' : '⏳ STANDBY';
+    matchPill.className = state.matchStarted ? 'pill green' : 'pill amber';
+  }
+  const endBtn4 = document.getElementById('endMatchBtnScreen4');
+  if (matchPill && state.matchEnded) {
+    matchPill.textContent = '🏁 MATCH ENDED';
+    matchPill.className = 'pill active';
+  }
+  if (btn4) {
+    if (state.matchEnded) {
+      btn4.textContent = '🎾 Start New Match (0–0)';
+      btn4.className = 'btn primary';
+    } else {
+      btn4.textContent = state.matchStarted ? '🔄 Restart Match (0–0)' : '🎾 READY — START MATCH (0–0)';
+      btn4.className = state.matchStarted ? 'btn green' : 'btn primary';
+    }
+  }
+  if (endBtn4) {
+    endBtn4.style.display = (state.matchStarted && !state.matchEnded) ? 'inline-block' : 'none';
+  }
+}
+
+function startMatchNow(fromRemote = false) {
+  if (state.matchEnded || (state.matchStarted && !fromRemote && state.history.length > 0)) {
+    // Starting fresh match if previous match ended or user tapped Restart Match
+    state.setsA = 0; state.setsB = 0;
+    state.gamesA = 0; state.gamesB = 0;
+    state.ptsA = 0; state.ptsB = 0;
+    state.history = [];
+  }
+  state.matchEnded = false;
+  state.matchWinner = null;
+  const sumCard = document.getElementById('matchSummaryCard');
+  if (sumCard) sumCard.style.display = 'none';
+
+  if (!state.calibLocked) {
+    state.calibLocked = true;
+    const btn = document.getElementById('lockCalibBtn');
+    const fsLockBtn = document.getElementById('fsLockBtn');
+    const badge = document.getElementById('calibBadge');
+    if (btn) btn.textContent = 'Unlock Pins';
+    if (fsLockBtn) fsLockBtn.textContent = '✓ Locked (Tap to Edit)';
+    if (badge) { badge.textContent = 'LOCKED & CALIBRATED'; badge.className = 'pill green'; }
+  }
+  if (state.isFullscreenCalib) {
+    toggleFullscreenCalib();
+  }
+  state.matchStarted = true;
+  renderScoreboard();
+  updateReadinessUI();
+  switchScreen(4);
+
+  const banner = document.getElementById('liveCallBanner');
+  const title = document.getElementById('liveCallTitle');
+  const sub = document.getElementById('liveCallSub');
+  banner.className = 'call-banner in';
+  title.textContent = 'MATCH LIVE — PLAY!';
+  sub.textContent = `${state.playerA} Serving • 0–0 (Love All) • 60fps Line Calling Active`;
+
+  if (!fromRemote) {
+    broadcastPeerPacket({ type: 'start_match', ts: Date.now() });
+  }
+  speakCall(`All cameras calibrated and ready. ${state.playerA} to serve. Love all, play!`);
+}
+
+state.capturedImage = null;
+
+async function startRearCamera() {
+  const video = document.getElementById('cameraVideo');
+  // Check if running in an HTTPS / localhost secure origin where Chrome allows live WebRTC getUserMedia
+  const canStreamLive = window.isSecureContext && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+  if (!canStreamLive) {
+    // When opened via content:// or file:// on Android, trigger single-MIME video capture synchronously
+    // (Using accept="video/*" capture="environment" forces Android to launch the native Camera app instead of Google Photos!)
+    const input = document.getElementById('nativeCameraCapture');
+    if (input) input.click();
+    return;
+  }
+  // If opened over HTTPS or localhost, request high-speed stream (120fps ideal -> 60fps fallback at 1080p)
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 120, min: 30 }
+        },
+        audio: false
+      });
+      const track = stream.getVideoTracks()[0];
+      if (track && track.applyConstraints) {
+        try {
+          await track.applyConstraints({
+            advanced: [{ focusMode: 'continuous', exposureMode: 'continuous' }]
+          });
+        } catch (e) {}
+      }
+      state.capturedImage = null;
+      video.src = '';
+      video.srcObject = stream;
+      await video.play();
+      state.useSimVideo = false;
+      state.gpuTracker.useRealTracker = true;
+      startWebCodecsProcessor(stream, video);
+      const settings = track ? track.getSettings() : {};
+      const actualFps = settings.frameRate ? Math.round(settings.frameRate) : 60;
+      document.getElementById('calibBadge').textContent = `LIVE ${actualFps}FPS WEBCODECS`;
+      if (!state.isFullscreenCalib) toggleFullscreenCalib();
+      return;
+    } catch (err) {
+      // Fall through to native Android/iOS camera capture input
+    }
+  }
+  // When opened locally via content:// or file:// on Android Chrome, launch native Rear Camera directly!
+  const input = document.getElementById('nativeCameraCapture');
+  if (input) {
+    input.click();
+  }
+}
+
+function handleNativeMediaFile(inputEl) {
+  const file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const video = document.getElementById('cameraVideo');
+  if (file.type.startsWith('video/')) {
+    state.capturedImage = null;
+    video.srcObject = null;
+    video.src = url;
+    video.loop = true;
+    video.muted = true;
+    video.play();
+    state.useSimVideo = false;
+    state.gpuTracker.useRealTracker = true;
+    startVideoElementFrameLoop(video);
+    document.getElementById('calibBadge').textContent = '120/60FPS VIDEO GPU ACTIVE';
+    if (!state.isFullscreenCalib) toggleFullscreenCalib();
+    setTimeout(() => autoDetectCourtLines(), 400);
+  } else {
+    const img = new Image();
+    img.onload = () => {
+      state.capturedImage = img;
+      video.srcObject = null;
+      video.src = '';
+      state.useSimVideo = false;
+      document.getElementById('calibBadge').textContent = 'CAMERA PHOTO LOADED';
+      if (!state.isFullscreenCalib) toggleFullscreenCalib();
+      autoDetectCourtLines();
+    };
+    img.src = url;
+  }
+}
+
+state.mountRotation = 0; // 0 = Upright, 1 = Sideways Right (Landscape in Portrait), 2 = Inverted, 3 = Sideways Left
+
+function rotatePins90() {
+  state.mountRotation = (state.mountRotation + 1) % 4;
+  // Rotate each pin (u, v) 90 degrees around center (0.5, 0.5)
+  state.pins = state.pins.map(p => ({
+    u: Math.max(0.05, Math.min(0.95, 1.0 - p.v)),
+    v: Math.max(0.10, Math.min(0.88, p.u))
+  }));
+  syncPinsToDOM();
+  const orientNames = ['Upright Mount', 'Sideways Landscape (90°)', 'Inverted (180°)', 'Sideways Left (270°)'];
+  document.getElementById('calibBadge').textContent = orientNames[state.mountRotation];
+  speakCall('Rotated court pins 90 degrees for ' + orientNames[state.mountRotation]);
+}
+
+function autoDetectCourtLines() {
+  const calibCanvas = document.getElementById('calibCanvas');
+  const cw = calibCanvas.width || 360;
+  const ch = calibCanvas.height || 640;
+
+  // Render the exact aspect-matched camera frame (without overlay lines) at 1/2 resolution
+  const off = document.createElement('canvas');
+  const W = 240;
+  const H = Math.max(160, Math.round((ch / cw) * W));
+  off.width = W;
+  off.height = H;
+  const octx = off.getContext('2d');
+  const video = document.getElementById('cameraVideo');
+
+  if (state.capturedImage) {
+    drawMediaCover(octx, state.capturedImage, state.capturedImage.naturalWidth || 640, state.capturedImage.naturalHeight || 480, W, H);
+  } else if (!state.useSimVideo && video && video.readyState >= 2) {
+    drawMediaCover(octx, video, video.videoWidth || 640, video.videoHeight || 480, W, H);
+  } else {
+    state.pins = [
+      { u: 0.24, v: 0.24 },
+      { u: 0.76, v: 0.24 },
+      { u: 0.90, v: 0.82 },
+      { u: 0.10, v: 0.82 }
+    ];
+    syncPinsToDOM();
+    document.getElementById('calibBadge').textContent = 'AUTO-SNAPPED 4 LINES';
+    speakCall('Court lines auto detected');
+    return;
+  }
+
+  const imgData = octx.getImageData(0, 0, W, H).data;
+  const lum = new Float32Array(W * H);
+  const sat = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const r = imgData[i * 4], g = imgData[i * 4 + 1], b = imgData[i * 4 + 2];
+    lum[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    sat[i] = Math.max(r, g, b) - Math.min(r, g, b);
+  }
+
+  // Step 1: Detect where the bright sky is (Top vs Right vs Left) so we completely ignore sky & trees!
+  let sumTop = 0, cntTop = 0, sumRight = 0, cntRight = 0, sumLeft = 0, cntLeft = 0;
+  for (let y = 0; y < H; y += 2) {
+    for (let x = 0; x < W; x += 2) {
+      const L = lum[y * W + x];
+      if (y < H * 0.28) { sumTop += L; cntTop++; }
+      if (x > W * 0.68) { sumRight += L; cntRight++; }
+      if (x < W * 0.32) { sumLeft += L; cntLeft++; }
+    }
+  }
+  const avgTop = sumTop / Math.max(1, cntTop);
+  const avgRight = sumRight / Math.max(1, cntRight);
+  const avgLeft = sumLeft / Math.max(1, cntLeft);
+
+  // Check if phone is held sideways in portrait lock (e.g. bright sky on the Right, dark court on the Left)
+  const sidewaysRightSky = (avgRight > 150 && avgRight > avgLeft + 32);
+  const sidewaysLeftSky  = (avgLeft > 150 && avgLeft > avgRight + 32);
+
+  // Step 2: Detect THIN WHITE COURT LINE RIDGES on dark asphalt/acrylic court surface
+  // A court line pixel is brighter than both sides (5px step) AND sits inside a dark/mid-tone court neighborhood (not sky)
+  const step = 5;
+  const ridgePts = [];
+  const yMin = Math.floor(H * 0.10), yMax = Math.floor(H * 0.86);
+  const xMin = Math.floor(W * 0.05), xMax = Math.floor(W * 0.95);
+
+  for (let y = yMin; y < yMax; y++) {
+    for (let x = xMin; x < xMax; x++) {
+      // Skip known sky band
+      if (sidewaysRightSky && x > W * 0.56) continue;
+      if (sidewaysLeftSky && x < W * 0.44) continue;
+      if (!sidewaysRightSky && !sidewaysLeftSky && avgTop > 155 && y < H * 0.25) continue;
+
+      const idx = y * W + x;
+      const cLum = lum[idx];
+      const cSat = sat[idx];
+      // White painted line on outdoor asphalt/green court: moderate-to-high luminance, low color saturation
+      if (cLum < 122 || cLum > 245 || cSat > 42) continue;
+
+      const lLeft  = lum[y * W + Math.max(0, x - step)];
+      const lRight = lum[y * W + Math.min(W - 1, x + step)];
+      const lUp    = lum[Math.max(0, y - step) * W + x];
+      const lDown  = lum[Math.min(H - 1, y + step) * W + x];
+
+      // Check if flanked by darker court surface (luminance 35..135) either horizontally or vertically
+      const horizRidge = (cLum - lLeft > 18) && (cLum - lRight > 18) && lLeft < 138 && lRight < 138 && lLeft > 30 && lRight > 30;
+      const vertRidge  = (cLum - lUp > 18)   && (cLum - lDown > 18)  && lUp < 138   && lDown < 138   && lUp > 30   && lDown > 30;
+
+      if (horizRidge || vertRidge) {
+        ridgePts.push({ u: x / W, v: y / H, score: (cLum - Math.min(lLeft, lRight, lUp, lDown)) });
+      }
+    }
+  }
+
+  if (ridgePts.length >= 16) {
+    // Fit the 4 corners directly to the detected white court-line ridge distribution (ignoring sky & trees)
+    const us = ridgePts.map(p => p.u).sort((a, b) => a - b);
+    const vs = ridgePts.map(p => p.v).sort((a, b) => a - b);
+    const uMin = Math.max(0.05, us[Math.floor(us.length * 0.06)]);
+    const uMax = Math.min(0.92, us[Math.floor(us.length * 0.94)]);
+    const vTop = Math.max(0.14, vs[Math.floor(vs.length * 0.10)]);
+    const vBot = Math.min(0.82, vs[Math.floor(vs.length * 0.90)]);
+
+    const topBand = ridgePts.filter(p => Math.abs(p.v - vTop) < 0.12).sort((a, b) => a.u - b.u);
+    const botBand = ridgePts.filter(p => Math.abs(p.v - vBot) < 0.12).sort((a, b) => a.u - b.u);
+
+    const tlU = topBand.length >= 4 ? topBand[Math.floor(topBand.length * 0.10)].u : uMin;
+    const trU = topBand.length >= 4 ? topBand[Math.floor(topBand.length * 0.90)].u : uMax;
+    const blU = botBand.length >= 4 ? botBand[Math.floor(botBand.length * 0.08)].u : uMin;
+    const brU = botBand.length >= 4 ? botBand[Math.floor(botBand.length * 0.92)].u : uMax;
+
+    // Ensure minimum width separation so left/right pins never collapse onto a single line
+    const sepTop = Math.max(0.22, trU - tlU);
+    const sepBot = Math.max(0.26, brU - blU);
+    const midTop = (tlU + trU) / 2;
+    const midBot = (blU + brU) / 2;
+
+    state.pins = [
+      { u: Math.max(0.05, Math.min(0.85, midTop - sepTop / 2)), v: vTop },
+      { u: Math.max(0.15, Math.min(0.92, midTop + sepTop / 2)), v: vTop },
+      { u: Math.max(0.15, Math.min(0.94, midBot + sepBot / 2)), v: vBot },
+      { u: Math.max(0.05, Math.min(0.85, midBot - sepBot / 2)), v: vBot }
+    ];
+  } else {
+    // Clean default trapezoid inside court view
+    state.pins = [
+      { u: 0.22, v: 0.28 },
+      { u: 0.78, v: 0.28 },
+      { u: 0.90, v: 0.80 },
+      { u: 0.10, v: 0.80 }
+    ];
+  }
+  syncPinsToDOM();
+  document.getElementById('calibBadge').textContent = 'AUTO-SNAPPED COURT LINES';
+  speakCall('Court lines auto detected. Drag any pin or use fine-tune arrows.');
+}
+
+
+
+function toggleSimulatedVideo() {
+  state.useSimVideo = !state.useSimVideo;
+}
+
+/* ============================================================================
+   5. REAL-TIME CANVAS RENDERER (HOMOGRAPHY MESH + BALL TRACKER + GESTURE ZONE)
+   ============================================================================ */
+function syncCanvasToBox(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width > 10 && rect.height > 10) {
+    const targetW = Math.round(rect.width);
+    const targetH = Math.round(rect.height);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+  }
+}
+
+function drawMediaCover(ctx, media, srcW, srcH, dstW, dstH) {
+  if (!srcW || !srcH) return;
+  const srcAspect = srcW / srcH;
+  const dstAspect = dstW / dstH;
+  let sx = 0, sy = 0, sw = srcW, sh = srcH;
+  if (srcAspect > dstAspect) {
+    sw = srcH * dstAspect;
+    sx = (srcW - sw) / 2;
+  } else {
+    sh = srcW / dstAspect;
+    sy = (srcH - sh) / 2;
+  }
+  ctx.drawImage(media, sx, sy, sw, sh, 0, 0, dstW, dstH);
+}
+
+function renderLoop() {
+  const calibCanvas = document.getElementById('calibCanvas');
+  const trackerCanvas = document.getElementById('trackerCanvas');
+  syncCanvasToBox(calibCanvas);
+  syncCanvasToBox(trackerCanvas);
+  drawCourtAndOverlay(calibCanvas.getContext('2d'), calibCanvas.width, calibCanvas.height, false);
+  drawCourtAndOverlay(trackerCanvas.getContext('2d'), trackerCanvas.width, trackerCanvas.height, true);
+  requestAnimationFrame(renderLoop);
+}
+
+function drawCourtAndOverlay(ctx, W, H, showTrackerHUD) {
+  ctx.clearRect(0, 0, W, H);
+  const video = document.getElementById('cameraVideo');
+  if (state.capturedImage) {
+    drawMediaCover(ctx, state.capturedImage, state.capturedImage.naturalWidth || 640, state.capturedImage.naturalHeight || 480, W, H);
+  } else if (!state.useSimVideo && video && video.readyState >= 2) {
+    drawMediaCover(ctx, video, video.videoWidth || 640, video.videoHeight || 480, W, H);
+  } else {
+    // Rich stadium blue/green court surface background
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#0c223b');
+    grad.addColorStop(1, '#123d2a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  const p = state.pins.map(pt => ({ x: pt.u * W, y: pt.v * H }));
+  // Fill calibrated court polygon
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(p[0].x, p[0].y);
+  ctx.lineTo(p[1].x, p[1].y);
+  ctx.lineTo(p[2].x, p[2].y);
+  ctx.lineTo(p[3].x, p[3].y);
+  ctx.closePath();
+  ctx.fillStyle = state.useSimVideo ? 'rgba(30, 96, 145, 0.55)' : 'rgba(217, 255, 0, 0.08)';
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+
+  // Derived Service Line (at y = 6.40m out of 11.885m)
+  const srvL = courtToPixel(0, SERVICE_L);
+  const srvR = courtToPixel(COURT_W, SERVICE_L);
+  ctx.beginPath();
+  ctx.moveTo(srvL.u * W, srvL.v * H);
+  ctx.lineTo(srvR.u * W, srvR.v * H);
+  ctx.strokeStyle = '#d9ff00';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Derived Center Service Line
+  const netMid = courtToPixel(COURT_W / 2, 0);
+  const srvMid = courtToPixel(COURT_W / 2, SERVICE_L);
+  ctx.beginPath();
+  ctx.moveTo(netMid.u * W, netMid.v * H);
+  ctx.lineTo(srvMid.u * W, srvMid.v * H);
+  ctx.stroke();
+  ctx.restore();
+
+  // Draw last probe bounce marker if any
+  if (state.lastProbe) {
+    const px = state.lastProbe.u * W;
+    const py = state.lastProbe.v * H;
+    ctx.beginPath();
+    ctx.arc(px, py, 9, 0, Math.PI * 2);
+    ctx.fillStyle = state.lastProbe.isIn ? '#10b981' : '#ef4444';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+  }
+
+  // Run WebGL2 GPU Ball Pass if live camera/video is active and WebCodecs hasn't already processed this tick
+  const gt = state.gpuTracker;
+  const hasLiveMedia = (!state.useSimVideo && video && video.readyState >= 2) || !!state.capturedImage;
+  if (hasLiveMedia && gt.useRealTracker && !gt.webCodecsActive) {
+    // Fallback per-frame GPU pass when MediaStreamTrackProcessor / rVFC isn't driving it
+    processFrameOnWebGL(state.capturedImage || video, performance.now());
+  }
+
+  // Optional: Draw WebGL2 Shader Activation Heatmap overlay on Tracker tab
+  if (showTrackerHUD && gt.showHeatmap && gt.glCanvas) {
+    ctx.save();
+    ctx.globalAlpha = 0.48;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(gt.glCanvas, 0, 0, W, H);
+    ctx.restore();
+  }
+
+  // Draw EITHER Real WebGL2 GPU Tracked Ball Trajectory OR Simulated Demo Ball
+  if (state.wakeActive && ((hasLiveMedia && gt.useRealTracker) || !gt.useRealTracker)) {
+    const usingReal = hasLiveMedia && gt.useRealTracker;
+    const activeTrail = usingReal ? gt.trail : state.ball.trail;
+
+    if (!usingReal && showTrackerHUD) {
+      const b = state.ball;
+      b.u += b.vu;
+      b.v += b.vv;
+      if (b.u < 0.12 || b.u > 0.88) b.vu *= -1;
+      if (b.v < 0.14 || b.v > 0.90) b.vv *= -1;
+      b.trail.push({ u: b.u, v: b.v });
+      if (b.trail.length > 18) b.trail.shift();
+    }
+
+    if (activeTrail && activeTrail.length > 1) {
+      ctx.save();
+      ctx.beginPath();
+      activeTrail.forEach((pt, i) => {
+        if (i === 0) ctx.moveTo(pt.u * W, pt.v * H);
+        else ctx.lineTo(pt.u * W, pt.v * H);
+      });
+      ctx.strokeStyle = usingReal ? 'rgba(16, 185, 129, 0.85)' : 'rgba(217, 255, 0, 0.65)';
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    const currBall = usingReal ? gt.lastDetection : state.ball;
+    const isFresh = usingReal ? (currBall && (performance.now() - currBall.ts < 450)) : showTrackerHUD;
+
+    if (currBall && isFresh) {
+      const bx = currBall.u * W;
+      const by = currBall.v * H;
+      const radius = currBall.radiusPx ? Math.max(7, Math.min(22, currBall.radiusPx * (W / 128))) : 8;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(bx, by, radius, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(217, 255, 0, 0.35)';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#d9ff00';
+      ctx.stroke();
+
+      ctx.strokeStyle = usingReal ? '#10b981' : '#38bdf8';
+      ctx.lineWidth = 1.8;
+      ctx.strokeRect(bx - radius - 6, by - radius - 6, (radius + 6) * 2, (radius + 6) * 2);
+      ctx.fillStyle = '#d9ff00';
+      ctx.font = 'bold 11px monospace';
+      const tag = usingReal ? `GPU BALL ${(currBall.conf * 100).toFixed(0)}%` : `SIM BALL ${(currBall.conf * 100).toFixed(0)}%`;
+      ctx.fillText(tag, Math.min(W - 115, bx + radius + 8), Math.max(16, by + 4));
+      ctx.restore();
+    }
+  }
+
+  // Draw Upper-Body 2.0s Hand Gesture Detector Zone on Tracker View
+  if (showTrackerHUD) {
+    ctx.save();
+    ctx.strokeStyle = state.gestureProgress > 0 ? '#d9ff00' : 'rgba(255,255,255,0.35)';
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(W - 150, 14, 136, 92);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText('2.0s HAND GESTURE ROI', W - 142, 30);
+
+    // Circular progress ring
+    const cx = W - 82, cy = 65, r = 22;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+
+    if (state.gestureProgress > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * state.gestureProgress);
+      ctx.strokeStyle = '#d9ff00';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#d9ff00';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText((state.gestureProgress * 2.0).toFixed(1) + 's', cx - 14, cy + 4);
+    ctx.restore();
+  }
+}
+
+
+/* ============================================================================
+   5B. WEBCODECS (MediaStreamTrackProcessor) + WEBGL2 GPU BALL & V-BOUNCE ENGINE
+   ============================================================================ */
+state.gpuTracker = {
+  useRealTracker: true,    // Automatically uses GPU tracker when camera/video is loaded
+  showHeatmap: false,
+  autoCallBounces: true,
+  sensitivity: 1.15,
+  webCodecsActive: false,
+  rvfcActive: false,
+  engineName: 'WebGL2 GPU Ready',
+  fps: 60.0,
+  lastFrameTs: 0,
+  frameCount: 0,
+  fpsWindowStart: performance.now(),
+  lastShaderMs: 0.0,
+  glCanvas: null,
+  gl: null,
+  program: null,
+  currTex: null,
+  prevTex: null,
+  hasPrevTex: false,
+  stagingCanvas: null,
+  stagingCtx: null,
+  gridW: 128,
+  gridH: 72,
+  pixelBuf: null,
+  trail: [],               // Recent detected ball positions [{u, v, ts, vx, vy, conf}]
+  lastDetection: null,
+  lastBounceTs: 0,
+  streamCancel: null
+};
+
+function initWebGLBallTracker() {
+  const gt = state.gpuTracker;
+  if (gt.gl) return true;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = gt.gridW;
+  canvas.height = gt.gridH;
+  const gl = canvas.getContext('webgl2', {
+    alpha: false,
+    depth: false,
+    stencil: false,
+    antialias: false,
+    preserveDrawingBuffer: true,
+    powerPreference: 'high-performance'
+  }) || canvas.getContext('webgl', {
+    alpha: false,
+    depth: false,
+    preserveDrawingBuffer: true
+  });
+
+  if (!gl) {
+    gt.engineName = 'CPU Fallback';
+    return false;
+  }
+
+  const vsSource = `
+    attribute vec2 a_pos;
+    varying vec2 v_uv;
+    void main() {
+      // Convert clip space (-1..1) to top-left UV (0..1) matching screen coordinates
+      v_uv = vec2(a_pos.x * 0.5 + 0.5, 0.5 - a_pos.y * 0.5);
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+    }
+  `;
+
+  // GLSL Fragment Shader: Parallel Optic-Yellow HSV + Temporal Frame Differencing + 4-Pin Court Polygon Mask
+  const fsSource = `
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform sampler2D u_currTex;
+    uniform sampler2D u_prevTex;
+    uniform float u_sensitivity;
+    uniform vec2 u_p0;
+    uniform vec2 u_p1;
+    uniform vec2 u_p2;
+    uniform vec2 u_p3;
+
+    // Cross product 2D helper for point-in-polygon with margin
+    float cross2d(vec2 a, vec2 b, vec2 p) {
+      return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    }
+
+    bool insideCourtWithMargin(vec2 uv) {
+      // Expand court polygon slightly around centroid so balls bouncing just outside lines (OUT calls) are tracked!
+      vec2 center = 0.25 * (u_p0 + u_p1 + u_p2 + u_p3);
+      vec2 q0 = center + (u_p0 - center) * 1.28;
+      vec2 q1 = center + (u_p1 - center) * 1.28;
+      vec2 q2 = center + (u_p2 - center) * 1.28;
+      vec2 q3 = center + (u_p3 - center) * 1.28;
+
+      float c0 = cross2d(q0, q1, uv);
+      float c1 = cross2d(q1, q2, uv);
+      float c2 = cross2d(q2, q3, uv);
+      float c3 = cross2d(q3, q0, uv);
+      bool allPos = (c0 >= -0.02 && c1 >= -0.02 && c2 >= -0.02 && c3 >= -0.02);
+      bool allNeg = (c0 <= 0.02 && c1 <= 0.02 && c2 <= 0.02 && c3 <= 0.02);
+      return allPos || allNeg;
+    }
+
+    vec3 rgb2hsv(vec3 c) {
+      vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+      vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+      vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+      float d = q.x - min(q.w, q.y);
+      float e = 1.0e-10;
+      return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+    }
+
+    void main() {
+      if (!insideCourtWithMargin(v_uv)) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+      }
+
+      vec3 curr = texture2D(u_currTex, v_uv).rgb;
+      vec3 prev = texture2D(u_prevTex, v_uv).rgb;
+
+      // 1. Temporal frame difference (ignores static lines, trees, fences, or stationary yellow clothing)
+      vec3 diff = abs(curr - prev);
+      float motion = dot(diff, vec3(0.35, 0.50, 0.15));
+
+      // 2. Optic-yellow / green-yellow HSV filter (hue ~ 42 deg to 98 deg => 0.115 to 0.275)
+      vec3 hsv = rgb2hsv(curr);
+      float h = hsv.x;
+      float s = hsv.y;
+      float v = hsv.z;
+
+      // Center of optic yellow hue is ~0.185 (66 deg)
+      float hueDist = abs(h - 0.185);
+      float hueScore = clamp(1.0 - (hueDist / (0.095 * u_sensitivity)), 0.0, 1.0);
+      float satScore = smoothstep(0.22 / u_sensitivity, 0.55, s);
+      float valScore = smoothstep(0.32 / u_sensitivity, 0.72, v);
+
+      // Require both optic-yellow color AND inter-frame motion
+      float motionGate = smoothstep(0.035 / u_sensitivity, 0.16, motion);
+      float ballActivation = hueScore * satScore * valScore * motionGate;
+
+      // R = combined ball activation, G = motion magnitude, B = yellow color score
+      gl_FragColor = vec4(ballActivation, motionGate, hueScore * satScore, 1.0);
+    }
+  `;
+
+  function compileShader(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      console.warn('Shader compile error:', gl.getShaderInfoLog(sh));
+      return null;
+    }
+    return sh;
+  }
+
+  const vs = compileShader(gl.VERTEX_SHADER, vsSource);
+  const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
+  if (!vs || !fs) return false;
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return false;
+
+  gl.useProgram(prog);
+
+  // Fullscreen quad
+  const quadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1, -1,  1,
+    -1,  1,  1, -1,  1,  1
+  ]), gl.STATIC_DRAW);
+
+  const posLoc = gl.getAttribLocation(prog, 'a_pos');
+  gl.enableVertexAttribArray(posLoc);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  function createTex() {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    return t;
+  }
+
+  gt.glCanvas = canvas;
+  gt.gl = gl;
+  gt.program = prog;
+  gt.currTex = createTex();
+  gt.prevTex = createTex();
+  gt.pixelBuf = new Uint8Array(gt.gridW * gt.gridH * 4);
+
+  // Aspect-matched staging canvas (256x144) so cover-crop matches calibCanvas & trackerCanvas 1:1
+  const stg = document.createElement('canvas');
+  stg.width = 256;
+  stg.height = 144;
+  gt.stagingCanvas = stg;
+  gt.stagingCtx = stg.getContext('2d', { willReadFrequently: false });
+
+  return true;
+}
+
+// Start WebCodecs MediaStreamTrackProcessor on Galaxy Z Fold 7 / Chrome Android
+function startWebCodecsProcessor(stream, videoEl) {
+  initWebGLBallTracker();
+  const gt = state.gpuTracker;
+  const track = stream.getVideoTracks()[0];
+
+  // Stop any previous processor
+  if (gt.streamCancel) {
+    try { gt.streamCancel(); } catch (e) {}
+    gt.streamCancel = null;
+  }
+
+  if (typeof MediaStreamTrackProcessor !== 'undefined' && track) {
+    try {
+      const processor = new MediaStreamTrackProcessor({ track });
+      const reader = processor.readable.getReader();
+      gt.webCodecsActive = true;
+      gt.engineName = 'WebCodecs + WebGL2 GPU';
+      const pill = document.getElementById('gpuEnginePill');
+      if (pill) { pill.textContent = 'WEBCODECS + WEBGL2 GPU'; pill.className = 'pill green'; }
+
+      let cancelled = false;
+      gt.streamCancel = () => {
+        cancelled = true;
+        gt.webCodecsActive = false;
+        try { reader.cancel(); } catch (e) {}
+      };
+
+      (async function readLoop() {
+        while (!cancelled) {
+          const { done, value: videoFrame } = await reader.read();
+          if (done || !videoFrame) break;
+          try {
+            if (state.wakeActive && gt.useRealTracker) {
+              const tsMs = videoFrame.timestamp ? (videoFrame.timestamp / 1000.0) : performance.now();
+              processFrameOnWebGL(videoFrame, tsMs, videoFrame.displayWidth, videoFrame.displayHeight);
+            }
+          } finally {
+            videoFrame.close();
+          }
+        }
+      })();
+      return;
+    } catch (err) {
+      console.warn('MediaStreamTrackProcessor fallback to requestVideoFrameCallback:', err);
+    }
+  }
+
+  // Fallback to HTMLVideoElement.requestVideoFrameCallback (also hardware-synced per video frame)
+  startVideoElementFrameLoop(videoEl);
+}
+
+function startVideoElementFrameLoop(videoEl) {
+  initWebGLBallTracker();
+  const gt = state.gpuTracker;
+  if (!videoEl || typeof videoEl.requestVideoFrameCallback !== 'function') {
+    gt.engineName = 'rAF + WebGL2 GPU';
+    return;
+  }
+  gt.webCodecsActive = true;
+  gt.engineName = 'rVFC + WebGL2 GPU';
+  const pill = document.getElementById('gpuEnginePill');
+  if (pill) { pill.textContent = 'rVFC + WEBGL2 GPU'; pill.className = 'pill green'; }
+
+  function onVideoFrame(now, metadata) {
+    if (videoEl.paused || videoEl.ended) {
+      gt.webCodecsActive = false;
+      return;
+    }
+    if (state.wakeActive && gt.useRealTracker) {
+      const mediaTs = metadata && metadata.mediaTime ? (metadata.mediaTime * 1000.0) : now;
+      processFrameOnWebGL(videoEl, mediaTs, metadata.width || videoEl.videoWidth, metadata.height || videoEl.videoHeight);
+    }
+    videoEl.requestVideoFrameCallback(onVideoFrame);
+  }
+  videoEl.requestVideoFrameCallback(onVideoFrame);
+}
+
+function processFrameOnWebGL(sourceMedia, tsMs, explicitW, explicitH) {
+  const gt = state.gpuTracker;
+  if (!gt.gl && !initWebGLBallTracker()) return;
+
+  const t0 = performance.now();
+  // Measure real camera frame rate
+  gt.frameCount++;
+  if (t0 - gt.fpsWindowStart >= 500) {
+    gt.fps = (gt.frameCount * 1000) / (t0 - gt.fpsWindowStart);
+    gt.frameCount = 0;
+    gt.fpsWindowStart = t0;
+    const fpsEl = document.getElementById('fpsReadout');
+    if (fpsEl) fpsEl.textContent = `${gt.fps.toFixed(1)} FPS GPU`;
+  }
+
+  const calibCanvas = document.getElementById('calibCanvas');
+  const dstW = (calibCanvas && calibCanvas.width) || 360;
+  const dstH = (calibCanvas && calibCanvas.height) || 640;
+
+  // Match staging canvas aspect ratio to viewport so normalized (u,v) matches pins 1:1
+  const stgW = 240;
+  const stgH = Math.max(135, Math.min(420, Math.round((dstH / dstW) * stgW)));
+  if (gt.stagingCanvas.width !== stgW || gt.stagingCanvas.height !== stgH) {
+    gt.stagingCanvas.width = stgW;
+    gt.stagingCanvas.height = stgH;
+  }
+
+  const srcW = explicitW || sourceMedia.videoWidth || sourceMedia.naturalWidth || sourceMedia.displayWidth || 640;
+  const srcH = explicitH || sourceMedia.videoHeight || sourceMedia.naturalHeight || sourceMedia.displayHeight || 480;
+  drawMediaCover(gt.stagingCtx, sourceMedia, srcW, srcH, stgW, stgH);
+
+  const gl = gt.gl;
+  const prog = gt.program;
+  gl.useProgram(prog);
+  gl.viewport(0, 0, gt.gridW, gt.gridH);
+
+  // Upload current staging frame to u_currTex
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, gt.currTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gt.stagingCanvas);
+  gl.uniform1i(gl.getUniformLocation(prog, 'u_currTex'), 0);
+
+  // Bind previous frame texture to u_prevTex (if first frame, bind currTex to both)
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, gt.hasPrevTex ? gt.prevTex : gt.currTex);
+  gl.uniform1i(gl.getUniformLocation(prog, 'u_prevTex'), 1);
+
+  // Upload 4-pin court polygon and sensitivity uniform
+  const p = state.pins;
+  gl.uniform1f(gl.getUniformLocation(prog, 'u_sensitivity'), gt.sensitivity);
+  gl.uniform2f(gl.getUniformLocation(prog, 'u_p0'), p[0].u, p[0].v);
+  gl.uniform2f(gl.getUniformLocation(prog, 'u_p1'), p[1].u, p[1].v);
+  gl.uniform2f(gl.getUniformLocation(prog, 'u_p2'), p[2].u, p[2].v);
+  gl.uniform2f(gl.getUniformLocation(prog, 'u_p3'), p[3].u, p[3].v);
+
+  // Execute WebGL2 fragment shader pass
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  // Read back tiny 128x72 activation grid
+  gl.readPixels(0, 0, gt.gridW, gt.gridH, gl.RGBA, gl.UNSIGNED_BYTE, gt.pixelBuf);
+
+  // Swap currTex and prevTex references for next frame's temporal difference!
+  const tmpTex = gt.prevTex;
+  gt.prevTex = gt.currTex;
+  gt.currTex = tmpTex;
+  gt.hasPrevTex = true;
+
+  // Extract highest-activation compact optic-yellow moving ball blob from pixelBuf
+  const W = gt.gridW, H = gt.gridH;
+  const buf = gt.pixelBuf;
+  let peakVal = 0, peakX = -1, peakY = -1;
+
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      // Note: WebGL readPixels row 0 is bottom; flip y so 0 is top
+      const idx = ((H - 1 - y) * W + x) * 4;
+      const r = buf[idx]; // Combined ballActivation (0..255)
+      if (r > peakVal) {
+        peakVal = r;
+        peakX = x;
+        peakY = y;
+      }
+    }
+  }
+
+  gt.lastShaderMs = performance.now() - t0;
+  const passEl = document.getElementById('gpuPassReadout');
+  if (passEl) {
+    passEl.textContent = `${gt.engineName}: ${gt.lastShaderMs.toFixed(2)}ms • ${W}×${H}`;
+  }
+
+  // Require minimum activation threshold (38 / 255)
+  if (peakVal >= 38 && peakX >= 0) {
+    // Compute weighted centroid in a 9x9 window around peak to get sub-grid precision
+    let sumW = 0, sumX = 0, sumY = 0, activeCells = 0;
+    const win = 5;
+    for (let dy = -win; dy <= win; dy++) {
+      const yy = peakY + dy;
+      if (yy < 0 || yy >= H) continue;
+      for (let dx = -win; dx <= win; dx++) {
+        const xx = peakX + dx;
+        if (xx < 0 || xx >= W) continue;
+        const idx = ((H - 1 - yy) * W + xx) * 4;
+        const w = buf[idx];
+        if (w >= 28) {
+          sumW += w;
+          sumX += xx * w;
+          sumY += yy * w;
+          activeCells++;
+        }
+      }
+    }
+
+    // Reject giant blobs (e.g., player walking across frame in a yellow shirt > 48 grid cells)
+    if (sumW > 0 && activeCells >= 1 && activeCells <= 48) {
+      const u = (sumX / sumW + 0.5) / W;
+      const v = (sumY / sumW + 0.5) / H;
+      const conf = Math.min(0.99, Math.max(0.55, (peakVal / 255) * 1.15));
+      const nowPerf = performance.now();
+
+      const det = {
+        u,
+        v,
+        ts: nowPerf,
+        mediaTs: tsMs,
+        conf,
+        radiusPx: Math.sqrt(activeCells) * 1.4
+      };
+      gt.lastDetection = det;
+      gt.trail.push(det);
+      if (gt.trail.length > 20) gt.trail.shift();
+
+      const confEl = document.getElementById('confReadout');
+      if (confEl) confEl.textContent = `${Math.round(conf * 100)}% (GPU LOCK)`;
+
+      // Run 4-Point Parabolic V-Bounce Sub-Frame Detector
+      detectParabolicVBounce();
+    }
+  }
+}
+
+function detectParabolicVBounce() {
+  const gt = state.gpuTracker;
+  const tr = gt.trail;
+  if (tr.length < 4) return;
+
+  const now = performance.now();
+  // Cooldown 1100ms between automatic bounce calls so a single bounce never double-triggers
+  if (now - gt.lastBounceTs < 1100) return;
+
+  // Examine the last 4 tracked positions: p0 -> p1 -> p2 -> p3
+  const p0 = tr[tr.length - 4];
+  const p1 = tr[tr.length - 3];
+  const p2 = tr[tr.length - 2];
+  const p3 = tr[tr.length - 1];
+
+  // Must be a continuous high-speed track within 280ms total
+  if (p3.ts - p0.ts > 280 || p3.ts - p0.ts < 12) return;
+
+  // Depending on whether phone is Upright (gravity along +v) or Sideways Landscape (gravity along +u or -u):
+  // In Upright view, a falling ball has dv > 0 before bounce (p0 -> p2) and dv < 0 after bounce (p2 -> p3).
+  // In Sideways mount (like user's screenshot where sky is on Right u~0.9 and court ground is on Left u~0.2),
+  // falling toward the court ground means du < 0 before bounce and du > 0 after bounce!
+  const dvPre = p2.v - p0.v;
+  const dvPost = p3.v - p2.v;
+  const duPre = p2.u - p0.u;
+  const duPost = p3.u - p2.u;
+
+  // Check for sharp vertical V-bounce (upright mount) OR horizontal V-bounce (sideways landscape mount)
+  const isVerticalBounce = (dvPre > 0.014 && dvPost < -0.007);
+  const isSidewaysLeftCourtBounce = (duPre < -0.014 && duPost > 0.007);
+  const isSidewaysRightCourtBounce = (duPre > 0.014 && duPost < -0.007);
+
+  if (!isVerticalBounce && !isSidewaysLeftCourtBounce && !isSidewaysRightCourtBounce) return;
+
+  // Compute sub-frame intersection vertex between pre-bounce vector (p0->p1) and post-bounce vector (p3->p2)
+  // Using parametric ray intersection, falling back to p2 (the extremum frame) if rays are nearly collinear
+  let uVertex = p2.u;
+  let vVertex = p2.v;
+
+  const x1 = p0.u, y1 = p0.v, x2 = p2.u, y2 = p2.v;
+  const x3 = p2.u, y3 = p2.v, x4 = p3.u, y4 = p3.v;
+  const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(denom) > 1e-5) {
+    const ix = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denom;
+    const iy = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denom;
+    // Clamp sub-frame vertex to a tight neighborhood around p1..p2
+    if (Math.hypot(ix - p2.u, iy - p2.v) < 0.06) {
+      uVertex = ix;
+      vVertex = iy;
+    }
+  }
+
+  gt.lastBounceTs = now;
+
+  // Map sub-frame bounce vertex (uVertex, vVertex) through the 4-Pin Homography Matrix into real court meters!
+  const courtPt = pixelToCourt(uVertex, vVertex);
+  const res = classifyCourtBounce(courtPt.x, courtPt.y, false);
+  state.lastProbe = { u: uVertex, v: vVertex, ...res };
+
+  const vbEl = document.getElementById('lastVBounceReadout');
+  if (vbEl) {
+    vbEl.textContent = `(${courtPt.x.toFixed(2)}m, ${courtPt.y.toFixed(2)}m) → ${res.verdict} (${res.distCm}cm)`;
+    vbEl.style.color = res.isIn ? '#34d399' : '#f87171';
+  }
+  const probeEl = document.getElementById('lastProbeResult');
+  if (probeEl) {
+    probeEl.textContent = `GPU V-Bounce (${courtPt.x.toFixed(2)}m, ${courtPt.y.toFixed(2)}m) → ${res.verdict} (${res.distCm} cm from ${res.nearestLine})`;
+  }
+
+  if (gt.autoCallBounces) {
+    processClassifiedBounce(res.verdict, res.distCm, res.nearestLine, 'WebGL2 GPU V-Bounce');
+  }
+}
+
+function toggleGpuRealTracking() {
+  const gt = state.gpuTracker;
+  gt.useRealTracker = !gt.useRealTracker;
+  const btn = document.getElementById('gpuModeToggleBtn');
+  if (btn) {
+    btn.textContent = gt.useRealTracker ? '🎯 GPU Live Ball Tracker: AUTO' : '🧪 Sim Trajectory Mode';
+    btn.className = gt.useRealTracker ? 'btn green' : 'btn amber';
+  }
+}
+
+function toggleGpuHeatmap() {
+  const gt = state.gpuTracker;
+  gt.showHeatmap = !gt.showHeatmap;
+  const btn = document.getElementById('gpuHeatmapBtn');
+  if (btn) {
+    btn.textContent = gt.showHeatmap ? '🔥 Shader Mask: ON' : '🔥 Shader Mask: OFF';
+    btn.className = gt.showHeatmap ? 'btn primary' : 'btn';
+  }
+}
+
+function toggleGpuAutoCall() {
+  const gt = state.gpuTracker;
+  gt.autoCallBounces = !gt.autoCallBounces;
+  const btn = document.getElementById('gpuAutoCallBtn');
+  if (btn) {
+    btn.textContent = gt.autoCallBounces ? '🔊 Auto-Call Bounces: ON' : '🔇 Auto-Call Bounces: OFF';
+    btn.className = gt.autoCallBounces ? 'btn green' : 'btn';
+  }
+}
+
+function updateGpuSensitivity(val) {
+  const gt = state.gpuTracker;
+  gt.sensitivity = parseFloat(val) || 1.15;
+  const lbl = document.getElementById('gpuSensLabel');
+  if (lbl) lbl.textContent = gt.sensitivity.toFixed(2) + '×';
+}
+
+/* ============================================================================
+   6. SHOT SIMULATOR, AUDIO UMPIRE, 5-SECOND GRACE WINDOW & 2S GESTURE OVERRIDE
+   ============================================================================ */
+function speakCall(text) {
+  if (!state.voiceEnabled || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.06;
+    utter.pitch = 1.0;
+    window.speechSynthesis.speak(utter);
+  } catch (e) {}
+}
+
+function toggleVoiceMute() {
+  state.voiceEnabled = !state.voiceEnabled;
+  document.getElementById('voiceBtn').textContent =
+    state.voiceEnabled ? '🔊 Audio Umpire: ON' : '🔇 Audio Umpire: MUTED';
+}
+
+function toggleWakeSaver() {
+  state.wakeActive = !state.wakeActive;
+  const pill = document.getElementById('wakePill');
+  const txt = document.getElementById('wakeStateText');
+  if (state.wakeActive) {
+    pill.textContent = 'ACTIVE 60FPS';
+    pill.className = 'pill green';
+    txt.textContent = 'ACTIVE 60FPS';
+    txt.style.color = '#34d399';
+    broadcastPeerPacket({ type: 'net_crossed', state: 'WAKE_60FPS', ts: Date.now() });
+  } else {
+    pill.textContent = 'IDLE LOW-POWER';
+    pill.className = 'pill amber';
+    txt.textContent = 'IDLE 5FPS (WAITING NET CROSS)';
+    txt.style.color = '#fbbf24';
+  }
+}
+
+function triggerSimulatedShot(kind) {
+  state.wakeActive = true;
+  if (kind === 'in_deep') {
+    const pt = courtToPixel(7.85, 11.74); // 14.5cm inside baseline
+    state.lastProbe = { u: pt.u, v: pt.v, isIn: true };
+    state.ball.conf = 0.96;
+    document.getElementById('confReadout').textContent = '96% (CLEAR)';
+    processClassifiedBounce('IN', 14, 'Baseline', 'Deep Corner Rally');
+  } else if (kind === 'out_long') {
+    const pt = courtToPixel(7.60, 11.98); // 9.5cm long past baseline
+    state.lastProbe = { u: pt.u, v: pt.v, isIn: false };
+    state.ball.conf = 0.95;
+    document.getElementById('confReadout').textContent = '95% (CLEAR)';
+    processClassifiedBounce('OUT', 9, 'Baseline', 'Baseline Groundstroke');
+  } else if (kind === 'serve_fault') {
+    const pt = courtToPixel(3.90, 6.47); // 7cm past service line
+    state.lastProbe = { u: pt.u, v: pt.v, isIn: false };
+    state.ball.conf = 0.93;
+    document.getElementById('confReadout').textContent = '93% (CLEAR)';
+    processClassifiedBounce('FAULT', 7, 'Service Line', 'First Serve');
+  } else if (kind === 'unsighted') {
+    state.ball.conf = 0.54;
+    document.getElementById('confReadout').textContent = '54% (OCCLUDED)';
+    processClassifiedBounce('UNSIGHTED', 0, 'Body Occlusion', 'Blocked Sightline');
+  }
+}
+
+function processClassifiedBounce(verdict, distCm, lineLabel, shotDesc) {
+  if (state.matchEnded) {
+    speakCall('Match has already ended. Tap Start New Match or Resume to continue.');
+    return;
+  }
+  const banner = document.getElementById('liveCallBanner');
+  const title = document.getElementById('liveCallTitle');
+  const sub = document.getElementById('liveCallSub');
+
+  broadcastPeerPacket({
+    type: 'bounce',
+    Verdict: verdict,
+    distCm,
+    lineLabel,
+    shotType: shotDesc,
+    ts: Date.now()
+  });
+
+  if (verdict === 'IN') {
+    banner.className = 'call-banner in';
+    title.textContent = `IN — ${distCm} CM INSIDE ${lineLabel.toUpperCase()}`;
+    sub.textContent = `${shotDesc} • Confidence ${(state.ball.conf * 100).toFixed(0)}%`;
+    awardPoint('A', `Shot IN (${distCm}cm inside ${lineLabel})`, false);
+    speakCall(`In. ${getSpokenScore()}`);
+  } else if (verdict === 'OUT') {
+    banner.className = 'call-banner out';
+    title.textContent = `OUT! — ${distCm} CM PAST ${lineLabel.toUpperCase()}`;
+    sub.textContent = `${shotDesc} • Audio Call Triggered`;
+    awardPoint('B', `Call OUT (${distCm}cm past ${lineLabel})`, false);
+    speakCall(`Out! ${getSpokenScore()}`);
+  } else if (verdict === 'FAULT') {
+    banner.className = 'call-banner out';
+    title.textContent = `FAULT! — ${distCm} CM PAST SERVICE LINE`;
+    sub.textContent = `${shotDesc} • Second Serve`;
+    speakCall('Fault!');
+    startGraceWindow();
+  } else if (verdict === 'UNSIGHTED') {
+    banner.className = 'call-banner unsighted';
+    title.textContent = 'UNSIGHTED — PLAYER CALL';
+    sub.textContent = 'Confidence < 70% (Player Body Occlusion) • No Auto Point Awarded';
+    speakCall('Unsighted. Player call.');
+    startGraceWindow();
+  }
+}
+
+/* ============================================================================
+   7. TENNIS SCORING ENGINE & 5-SECOND GRACE OVERRIDES
+   ============================================================================ */
+const POINT_LABELS = ['0', '15', '30', '40', 'Ad'];
+
+function formatPoints(pA, pB) {
+  if (state.format === 'tb10') return [String(pA), String(pB)];
+  if (pA >= 3 && pB >= 3) {
+    if (state.format === 'fast4') return ['40', '40']; // No-Ad sudden death
+    if (pA === pB) return ['40', '40'];
+    return pA > pB ? ['Ad', '40'] : ['40', 'Ad'];
+  }
+  return [POINT_LABELS[Math.min(pA, 3)], POINT_LABELS[Math.min(pB, 3)]];
+}
+
+function getSpokenScore() {
+  const [strA, strB] = formatPoints(state.ptsA, state.ptsB);
+  if (state.ptsA === 0 && state.ptsB === 0) {
+    return `Games ${state.gamesA} to ${state.gamesB}`;
+  }
+  if (state.ptsA >= 3 && state.ptsB >= 3 && state.ptsA === state.ptsB) {
+    return 'Deuce';
+  }
+  if (strA === 'Ad') return `Advantage ${state.playerA}`;
+  if (strB === 'Ad') return `Advantage ${state.playerB}`;
+  const mapWord = { '0': 'Love', '15': '15', '30': '30', '40': '40' };
+  return `${mapWord[strA] || strA}, ${mapWord[strB] || strB}`;
+}
+
+function awardPoint(winner, reason, speakNow = true) {
+  if (state.matchEnded) {
+    speakCall('Match is over. Tap Start New Match or Resume.');
+    return;
+  }
+  const prevSnapshot = {
+    setsA: state.setsA, setsB: state.setsB,
+    gamesA: state.gamesA, gamesB: state.gamesB,
+    ptsA: state.ptsA, ptsB: state.ptsB,
+    server: state.server,
+    matchEnded: state.matchEnded,
+    matchWinner: state.matchWinner
+  };
+
+  if (winner === 'A') state.ptsA++;
+  else state.ptsB++;
+
+  const targetPts = state.format === 'tb10' ? 10 : 4;
+  const minMargin = state.format === 'fast4' ? 1 : 2;
+  let autoMatchWinner = null;
+
+  if ((state.ptsA >= targetPts || state.ptsB >= targetPts) &&
+      Math.abs(state.ptsA - state.ptsB) >= minMargin) {
+    const gameWinner = state.ptsA > state.ptsB ? 'A' : 'B';
+    if (state.format === 'tb10') {
+      // 10-Point Match Tiebreak ends the match immediately when won!
+      if (gameWinner === 'A') state.setsA = 1;
+      else state.setsB = 1;
+      autoMatchWinner = gameWinner;
+    } else {
+      if (gameWinner === 'A') state.gamesA++;
+      else state.gamesB++;
+      state.ptsA = 0;
+      state.ptsB = 0;
+      state.server = state.server === 'A' ? 'B' : 'A';
+
+      const gamesTarget = state.format === 'fast4' ? 4 : 6;
+      if (state.gamesA >= gamesTarget || state.gamesB >= gamesTarget) {
+        if (state.gamesA > state.gamesB) state.setsA++;
+        else state.setsB++;
+        state.gamesA = 0;
+        state.gamesB = 0;
+
+        const setsToWin = state.format === 'fast4' ? 1 : 2; // Fast4 = 1 set of 4 games; Standard = Best of 3 sets (first to 2)
+        if (state.setsA >= setsToWin) autoMatchWinner = 'A';
+        else if (state.setsB >= setsToWin) autoMatchWinner = 'B';
+      }
+    }
+  }
+
+  const [dispA, dispB] = formatPoints(state.ptsA, state.ptsB);
+  state.history.unshift({
+    id: Date.now() + Math.random(),
+    winner,
+    reason,
+    scoreAfter: `${state.setsA}-${state.setsB} | ${state.gamesA}-${state.gamesB} | ${dispA}-${dispB}`,
+    prevSnapshot
+  });
+
+  renderScoreboard();
+  startGraceWindow();
+
+  if (autoMatchWinner) {
+    const winName = autoMatchWinner === 'A' ? state.playerA : state.playerB;
+    endMatchNow(`Game, Set & Match — ${winName}!`, true);
+  } else if (speakNow) {
+    speakCall(getSpokenScore());
+  }
+}
+
+function endMatchNow(reasonLabel = 'Match Ended', skipBroadcast = false) {
+  state.matchEnded = true;
+  state.matchStarted = false;
+
+  // Determine winner or leader based on sets -> games -> points
+  let winnerSide = null;
+  if (state.setsA !== state.setsB) winnerSide = state.setsA > state.setsB ? 'A' : 'B';
+  else if (state.gamesA !== state.gamesB) winnerSide = state.gamesA > state.gamesB ? 'A' : 'B';
+  else if (state.ptsA !== state.ptsB) winnerSide = state.ptsA > state.ptsB ? 'A' : 'B';
+  state.matchWinner = winnerSide;
+
+  const winnerName = winnerSide === 'A'
+    ? state.playerA
+    : (winnerSide === 'B' ? state.playerB : 'Draw / Tied');
+
+  const banner = document.getElementById('liveCallBanner');
+  const title = document.getElementById('liveCallTitle');
+  const sub = document.getElementById('liveCallSub');
+  banner.className = 'call-banner in';
+  title.textContent = winnerSide ? `GAME, SET & MATCH — ${winnerName.toUpperCase()}!` : 'MATCH ENDED — DRAW';
+  sub.textContent = `${reasonLabel} • Final Score Locked (5s Override Still Active for Last Point)`;
+
+  // Populate Final Match Summary Card
+  const sumCard = document.getElementById('matchSummaryCard');
+  if (sumCard) {
+    sumCard.style.display = 'block';
+    document.getElementById('summaryReasonPill').textContent = reasonLabel.toUpperCase();
+    document.getElementById('summaryWinnerText').textContent =
+      winnerSide ? `🏆 Winner: ${winnerName}` : '🤝 Match Ended in a Tie';
+    const [dispA, dispB] = formatPoints(state.ptsA, state.ptsB);
+    document.getElementById('summaryScoreLine').textContent =
+      `Final Score: Sets ${state.setsA}–${state.setsB} | Games ${state.gamesA}–${state.gamesB} | Points ${dispA}–${dispB}`;
+    const totalPts = state.history.length;
+    const wonA = state.history.filter(h => h.winner === 'A').length;
+    const wonB = totalPts - wonA;
+    document.getElementById('statTotalPts').textContent = String(totalPts);
+    document.getElementById('statPtsSplit').textContent = `${wonA} / ${wonB}`;
+  }
+
+  updateReadinessUI();
+  if (!skipBroadcast) {
+    broadcastPeerPacket({ type: 'end_match', reason: reasonLabel, ts: Date.now() });
+  }
+  if (winnerSide) {
+    speakCall(`Game, set, and match, ${winnerName}!`);
+  } else {
+    speakCall('Match ended.');
+  }
+}
+
+function resumeEndedMatch() {
+  state.matchEnded = false;
+  state.matchStarted = true;
+  const sumCard = document.getElementById('matchSummaryCard');
+  if (sumCard) sumCard.style.display = 'none';
+  document.getElementById('liveCallTitle').textContent = 'MATCH RESUMED — PLAY!';
+  document.getElementById('liveCallSub').textContent = 'Scoreboard Unlocked • Continuing Match';
+  updateReadinessUI();
+  speakCall('Match resumed. ' + getSpokenScore());
+}
+
+function startGraceWindow() {
+  clearInterval(state.graceInterval);
+  state.graceTimer = 5.0;
+  const fill = document.getElementById('graceProgressFill');
+  const txt = document.getElementById('graceTimerText');
+  fill.style.width = '100%';
+  txt.textContent = 'ACTIVE (5.0s)';
+
+  state.graceInterval = setInterval(() => {
+    state.graceTimer = Math.max(0, state.graceTimer - 0.1);
+    fill.style.width = ((state.graceTimer / 5.0) * 100).toFixed(1) + '%';
+    txt.textContent = state.graceTimer > 0
+      ? `OVERRIDE WINDOW (${state.graceTimer.toFixed(1)}s)`
+      : 'LOCKED (0.0s)';
+    if (state.graceTimer <= 0) clearInterval(state.graceInterval);
+  }, 100);
+}
+
+function overrideLastCall(action) {
+  if (action === 'fault_let') {
+    const banner = document.getElementById('liveCallBanner');
+    banner.className = 'call-banner unsighted';
+    document.getElementById('liveCallTitle').textContent = 'LET — FIRST SERVE REPLAY';
+    document.getElementById('liveCallSub').textContent = 'Grace Window Override Applied';
+    speakCall('Let. First serve.');
+    return;
+  }
+
+  if (state.history.length === 0) {
+    speakCall('No point to override.');
+    return;
+  }
+
+  const last = state.history.shift();
+  Object.assign(state, last.prevSnapshot);
+  state.matchEnded = false;
+  state.matchStarted = true;
+  const sumCard = document.getElementById('matchSummaryCard');
+  if (sumCard) sumCard.style.display = 'none';
+  updateReadinessUI();
+
+  if (action === 'overrule' || action === 'flip_winner') {
+    const newWinner = last.winner === 'A' ? 'B' : 'A';
+    const label = action === 'overrule' ? 'Overruled Call (In ↔ Out)' : 'Flipped Point Winner';
+    awardPoint(newWinner, label, true);
+    document.getElementById('liveCallTitle').textContent = `OVERRULED → POINT ${newWinner === 'A' ? state.playerA.toUpperCase() : state.playerB.toUpperCase()}`;
+  } else if (action === 'replay') {
+    renderScoreboard();
+    document.getElementById('liveCallBanner').className = 'call-banner unsighted';
+    document.getElementById('liveCallTitle').textContent = 'REPLAY POINT (LET)';
+    document.getElementById('liveCallSub').textContent = 'Previous point reverted cleanly';
+    speakCall('Replay point. ' + getSpokenScore());
+  }
+}
+
+function flipHistoricalPoint(index) {
+  const item = state.history[index];
+  if (!item) return;
+  item.winner = item.winner === 'A' ? 'B' : 'A';
+  item.reason = item.reason + ' [Edited]';
+  // Recompute score from oldest to newest
+  state.setsA = 0; state.setsB = 0;
+  state.gamesA = 0; state.gamesB = 0;
+  state.ptsA = 0; state.ptsB = 0;
+  const chronological = [...state.history].reverse();
+  state.history = [];
+  chronological.forEach(entry => {
+    awardPoint(entry.winner, entry.reason, false);
+  });
+  speakCall('Score updated. ' + getSpokenScore());
+}
+
+function startHoldGesture() {
+  clearInterval(state.gestureTimer);
+  state.gestureHoldStart = Date.now();
+  state.gestureTimer = setInterval(() => {
+    const elapsed = (Date.now() - state.gestureHoldStart) / 1000;
+    state.gestureProgress = Math.min(1, elapsed / 2.0);
+    document.getElementById('gestureReadout').textContent =
+      `${Math.min(2.0, elapsed).toFixed(1)}s / 2.0s`;
+    if (state.gestureProgress >= 1) {
+      clearInterval(state.gestureTimer);
+      state.gestureProgress = 0;
+      document.getElementById('gestureReadout').textContent = 'OVERRULED!';
+      overrideLastCall('overrule');
+    }
+  }, 50);
+}
+
+function stopHoldGesture() {
+  clearInterval(state.gestureTimer);
+  state.gestureProgress = 0;
+  document.getElementById('gestureReadout').textContent = '0.0s / 2.0s';
+}
+
+function resetMatch() {
+  state.setsA = 0; state.setsB = 0;
+  state.gamesA = 0; state.gamesB = 0;
+  state.ptsA = 0; state.ptsB = 0;
+  state.history = [];
+  state.matchEnded = false;
+  state.matchWinner = null;
+  const sumCard = document.getElementById('matchSummaryCard');
+  if (sumCard) sumCard.style.display = 'none';
+  updateReadinessUI();
+  renderScoreboard();
+}
+
+function renderScoreboard() {
+  const [dispA, dispB] = formatPoints(state.ptsA, state.ptsB);
+  document.getElementById('setsA').textContent = state.setsA;
+  document.getElementById('setsB').textContent = state.setsB;
+  document.getElementById('gamesA').textContent = state.gamesA;
+  document.getElementById('gamesB').textContent = state.gamesB;
+  document.getElementById('ptsA').textContent = dispA;
+  document.getElementById('ptsB').textContent = dispB;
+  document.getElementById('serveDotA').style.opacity = state.server === 'A' ? '1' : '0.15';
+  document.getElementById('serveDotB').style.opacity = state.server === 'B' ? '1' : '0.15';
+
+  document.getElementById('pointCountBadge').textContent = `${state.history.length} Points`;
+  const listEl = document.getElementById('pointHistoryList');
+  if (state.history.length === 0) {
+    listEl.innerHTML = '<div class="log-item" style="color:var(--muted);">No points played yet — trigger a shot or tap + Point above.</div>';
+    return;
+  }
+  listEl.innerHTML = state.history.map((item, idx) => {
+    const who = item.winner === 'A' ? state.playerA : state.playerB;
+    return `<div class="log-item">
+      <div>
+        <strong style="color:var(--optic);">${who}</strong> — ${item.reason}
+        <div class="mono" style="font-size:10px;color:var(--muted);">Score: ${item.scoreAfter}</div>
+      </div>
+      <button class="btn" style="padding:5px 8px;font-size:11px;" onclick="flipHistoricalPoint(${idx})">Flip Winner</button>
+    </div>`;
+  }).join('');
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  initPairing();
+  setupPinDragging();
+  updateReadinessUI();
+  renderScoreboard();
+  requestAnimationFrame(renderLoop);
+});
+</script>
+</body>
+</html>
