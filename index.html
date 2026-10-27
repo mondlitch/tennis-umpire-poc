@@ -740,21 +740,17 @@
           </select>
         </div>
         <div>
-          <label>Live Camera / Native Capture</label>
-          <div style="display:flex;gap:6px;">
-            <button class="btn primary" style="flex:1;" onclick="startRearCamera()">🎥 Open Rear Camera</button>
-            <button class="btn" style="padding:8px 10px;font-size:11px;" onclick="document.getElementById('nativePhotoCapture').click()" title="Snap photo directly with rear camera">📷 Photo</button>
-          </div>
-          <!-- Single MIME type per capture input so Android launches Samsung Camera instead of Google Photos Picker -->
+          <label>Live Camera</label>
+          <button class="btn primary" style="width:100%;" onclick="startRearCamera()">🎥 Open Rear Camera</button>
           <input type="file" id="nativeCameraCapture" accept="video/*" capture="environment" style="display:none;" onchange="handleNativeMediaFile(this)" />
-          <input type="file" id="nativePhotoCapture" accept="image/*" capture="environment" style="display:none;" onchange="handleNativeMediaFile(this)" />
           <input type="file" id="galleryMediaPicker" accept="video/*,image/*" style="display:none;" onchange="handleNativeMediaFile(this)" />
         </div>
         <div>
-          <label>Court Photo / Video / Auto-Snap</label>
+          <label>Hands-Free Walk Calib / Auto-Snap</label>
           <div style="display:flex;gap:6px;">
-            <button class="btn" style="flex:1;" onclick="document.getElementById('galleryMediaPicker').click()">Load Photo/Video</button>
-            <button class="btn green" style="flex:1;" onclick="autoDetectCourtLines()">Auto-Snap Lines</button>
+            <button class="btn primary" style="flex:1;" id="walkCalibTopBtn" onclick="toggleWalkCalibration()">🚶 Walk 4 Corners</button>
+            <button class="btn green" style="flex:1;" onclick="autoDetectCourtLines()">✨ Auto-Snap</button>
+            <button class="btn" style="padding:8px 10px;font-size:11px;" onclick="document.getElementById('galleryMediaPicker').click()" title="Load saved court video/photo">📂</button>
           </div>
         </div>
       </div>
@@ -768,7 +764,8 @@
         <div class="fs-hud-top">
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn primary" style="padding:7px 10px;font-size:12px;" onclick="toggleFullscreenCalib()" id="fsToggleBtn">⛶ Fullscreen</button>
-            <button class="btn green" style="padding:7px 10px;font-size:12px;" onclick="autoDetectCourtLines()">✨ Auto-Snap</button>
+            <button class="btn green" style="padding:7px 10px;font-size:12px;" id="fsWalkCalibBtn" onclick="toggleWalkCalibration()">🚶 Walk 4 Corners</button>
+            <button class="btn" style="padding:7px 10px;font-size:12px;" onclick="autoDetectCourtLines()">✨ Auto-Snap</button>
             <button class="btn amber" style="padding:7px 10px;font-size:12px;" onclick="rotatePins90()" title="Rotate pins 90° for sideways/landscape phone mount">↻ Rotate 90°</button>
           </div>
           <span class="pill active" id="activePinPill" style="background:rgba(0,0,0,0.8);backdrop-filter:blur(4px);">PIN 1 SELECTED</span>
@@ -2169,6 +2166,11 @@ function drawCourtAndOverlay(ctx, W, H, showTrackerHUD) {
   ctx.stroke();
   ctx.restore();
 
+  // Draw Hands-Free Walk-to-Calibrate HUD & 1.5s Dwell Ring when active
+  if (state.walkCalib && state.walkCalib.active) {
+    drawWalkCalibOverlay(ctx, W, H);
+  }
+
   // Draw last probe bounce marker if any
   if (state.lastProbe) {
     const px = state.lastProbe.u * W;
@@ -2185,9 +2187,12 @@ function drawCourtAndOverlay(ctx, W, H, showTrackerHUD) {
   // Run WebGL2 GPU Ball Pass if live camera/video is active and WebCodecs hasn't already processed this tick
   const gt = state.gpuTracker;
   const hasLiveMedia = (!state.useSimVideo && video && video.readyState >= 2) || !!state.capturedImage;
-  if (hasLiveMedia && gt.useRealTracker && !gt.webCodecsActive) {
+  if (hasLiveMedia && (gt.useRealTracker || (state.walkCalib && state.walkCalib.active)) && !gt.webCodecsActive) {
     // Fallback per-frame GPU pass when MediaStreamTrackProcessor / rVFC isn't driving it
     processFrameOnWebGL(state.capturedImage || video, performance.now());
+  } else if (!hasLiveMedia && state.walkCalib && state.walkCalib.active && ! showTrackerHUD) {
+    // Simulated Walk-to-Calibrate preview when testing without live camera
+    updateSimulatedWalkCalib();
   }
 
   // Optional: Draw WebGL2 Shader Activation Heatmap overlay on Tracker tab
@@ -2364,6 +2369,7 @@ function initWebGLBallTracker() {
     uniform sampler2D u_currTex;
     uniform sampler2D u_prevTex;
     uniform float u_sensitivity;
+    uniform float u_walkMode;
     uniform vec2 u_p0;
     uniform vec2 u_p1;
     uniform vec2 u_p2;
@@ -2401,7 +2407,7 @@ function initWebGLBallTracker() {
     }
 
     void main() {
-      if (!insideCourtWithMargin(v_uv)) {
+      if (u_walkMode < 0.5 && !insideCourtWithMargin(v_uv)) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
       }
@@ -2429,8 +2435,9 @@ function initWebGLBallTracker() {
       float motionGate = smoothstep(0.035 / u_sensitivity, 0.16, motion);
       float ballActivation = hueScore * satScore * valScore * motionGate;
 
-      // R = combined ball activation, G = motion magnitude, B = yellow color score
-      gl_FragColor = vec4(ballActivation, motionGate, hueScore * satScore, 1.0);
+      // R = moving ball activation, G = motion magnitude, B = static/held optic-yellow ball score
+      float staticYellowBall = hueScore * satScore * valScore;
+      gl_FragColor = vec4(ballActivation, motionGate, staticYellowBall, 1.0);
     }
   `;
 
@@ -2624,6 +2631,7 @@ function processFrameOnWebGL(sourceMedia, tsMs, explicitW, explicitH) {
   // Upload 4-pin court polygon and sensitivity uniform
   const p = state.pins;
   gl.uniform1f(gl.getUniformLocation(prog, 'u_sensitivity'), gt.sensitivity);
+  gl.uniform1f(gl.getUniformLocation(prog, 'u_walkMode'), (state.walkCalib && state.walkCalib.active) ? 1.0 : 0.0);
   gl.uniform2f(gl.getUniformLocation(prog, 'u_p0'), p[0].u, p[0].v);
   gl.uniform2f(gl.getUniformLocation(prog, 'u_p1'), p[1].u, p[1].v);
   gl.uniform2f(gl.getUniformLocation(prog, 'u_p2'), p[2].u, p[2].v);
@@ -2640,6 +2648,11 @@ function processFrameOnWebGL(sourceMedia, tsMs, explicitW, explicitH) {
   gt.prevTex = gt.currTex;
   gt.currTex = tmpTex;
   gt.hasPrevTex = true;
+
+  // If Walk-to-Calibrate mode is active, track the held/wiggled yellow tennis ball at the target corner!
+  if (state.walkCalib && state.walkCalib.active) {
+    updateWalkCalibFromGPU(gt.pixelBuf, gt.gridW, gt.gridH);
+  }
 
   // Extract highest-activation compact optic-yellow moving ball blob from pixelBuf
   const W = gt.gridW, H = gt.gridH;
@@ -2824,6 +2837,290 @@ function updateGpuSensitivity(val) {
   gt.sensitivity = parseFloat(val) || 1.15;
   const lbl = document.getElementById('gpuSensLabel');
   if (lbl) lbl.textContent = gt.sensitivity.toFixed(2) + '×';
+}
+
+
+/* ============================================================================
+   5C. HANDS-FREE WALK-TO-CALIBRATE (HOLD YELLOW BALL ON 4 CORNERS FOR 1.5s)
+   ============================================================================ */
+state.walkCalib = {
+  active: false,
+  stepIdx: 0, // 0: P1 (Net Left), 1: P2 (Net Right), 2: P3 (Base Right), 3: P4 (Base Left)
+  cornerNames: [
+    'P1: Net Left (Near Sideline at Net)',
+    'P2: Net Right (Far Sideline at Net)',
+    'P3: Base Right (Far Baseline Corner)',
+    'P4: Base Left (Near Baseline Corner)'
+  ],
+  candidateU: 0.5,
+  candidateV: 0.5,
+  hasCandidate: false,
+  dwellStartTs: 0,
+  dwellDurationMs: 1500, // Hold ball steady for 1.5s to lock corner
+  dwellProgress: 0,
+  stepCooldownUntil: 0,
+  audioCtx: null
+};
+
+function playCalibBeep(freq = 880, durationMs = 140, type = 'sine') {
+  try {
+    const wc = state.walkCalib;
+    if (!wc.audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) wc.audioCtx = new AudioContextClass();
+    }
+    const ctx = wc.audioCtx;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + durationMs / 1000);
+  } catch (e) {}
+}
+
+function toggleWalkCalibration() {
+  const wc = state.walkCalib;
+  wc.active = !wc.active;
+  const topBtn = document.getElementById('walkCalibTopBtn');
+  const fsBtn = document.getElementById('fsWalkCalibBtn');
+  const badge = document.getElementById('calibBadge');
+
+  if (wc.active) {
+    state.calibLocked = false;
+    wc.stepIdx = 0;
+    wc.dwellProgress = 0;
+    wc.dwellStartTs = 0;
+    wc.hasCandidate = false;
+    wc.stepCooldownUntil = performance.now() + 1200; // Give 1.2s before locking first corner
+    selectPinForNudge(0);
+
+    if (topBtn) { topBtn.textContent = '⏹ Stop Walk Calib'; topBtn.className = 'btn red'; }
+    if (fsBtn) { fsBtn.textContent = '⏹ Stop Walk (P1)'; fsBtn.className = 'btn red'; }
+    if (badge) { badge.textContent = 'WALK CALIB: CORNER 1/4'; badge.className = 'pill active'; }
+
+    playCalibBeep(660, 160, 'triangle');
+    speakCall('Walk Calibration started. Walk to Corner 1, Net Left, and hold or bounce a yellow tennis ball on the corner for 1.5 seconds.');
+  } else {
+    if (topBtn) { topBtn.textContent = '🚶 Walk 4 Corners'; topBtn.className = 'btn primary'; }
+    if (fsBtn) { fsBtn.textContent = '🚶 Walk 4 Corners'; fsBtn.className = 'btn green'; }
+    if (badge) { badge.textContent = state.calibLocked ? 'LOCKED & CALIBRATED' : 'HOMOGRAPHY READY'; }
+  }
+}
+
+function updateWalkCalibFromGPU(buf, W, H) {
+  const wc = state.walkCalib;
+  if (!wc.active) return;
+  const now = performance.now();
+  if (now < wc.stepCooldownUntil) {
+    wc.dwellProgress = 0;
+    return;
+  }
+
+  // Search for the strongest compact optic-yellow ball candidate across the frame
+  // We combine B (static optic-yellow ball score) + 0.6 * R (moving yellow ball score)
+  // while ignoring the top 10% sky border and bottom 12% HUD bar
+  let bestScore = 0, bestX = -1, bestY = -1;
+  const yStart = Math.floor(H * 0.08), yEnd = Math.floor(H * 0.88);
+  const xStart = Math.floor(W * 0.04), xEnd = Math.floor(W * 0.96);
+
+  for (let y = yStart; y < yEnd; y++) {
+    for (let x = xStart; x < xEnd; x++) {
+      const idx = ((H - 1 - y) * W + x) * 4;
+      const movingYellow = buf[idx];       // R channel
+      const staticYellow = buf[idx + 2];   // B channel
+      const score = staticYellow + movingYellow * 0.65;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = x;
+        bestY = y;
+      }
+    }
+  }
+
+  // Require clear optic-yellow ball signature (score >= 95)
+  if (bestScore >= 95 && bestX >= 0) {
+    let sumW = 0, sumX = 0, sumY = 0, cellCount = 0;
+    const win = 4;
+    for (let dy = -win; dy <= win; dy++) {
+      const yy = bestY + dy;
+      if (yy < 0 || yy >= H) continue;
+      for (let dx = -win; dx <= win; dx++) {
+        const xx = bestX + dx;
+        if (xx < 0 || xx >= W) continue;
+        const idx = ((H - 1 - yy) * W + xx) * 4;
+        const w = buf[idx + 2] + buf[idx] * 0.5;
+        if (w >= 70) {
+          sumW += w;
+          sumX += xx * w;
+          sumY += yy * w;
+          cellCount++;
+        }
+      }
+    }
+
+    // Compact ball/racket-sized yellow target (1..36 grid cells)
+    if (sumW > 0 && cellCount >= 1 && cellCount <= 36) {
+      const u = (sumX / sumW + 0.5) / W;
+      const v = (sumY / sumW + 0.5) / H;
+      processWalkCalibCandidate(u, v, now);
+      return;
+    }
+  }
+
+  // Decay dwell smoothly if ball temporarily occluded for a frame
+  if (wc.dwellStartTs > 0 && now - wc.lastSeenTs > 350) {
+    wc.hasCandidate = false;
+    wc.dwellStartTs = 0;
+    wc.dwellProgress = 0;
+  }
+}
+
+function updateSimulatedWalkCalib() {
+  const wc = state.walkCalib;
+  if (!wc.active) return;
+  const now = performance.now();
+  if (now < wc.stepCooldownUntil) return;
+  // In simulated mode (no live camera), smoothly guide a simulated yellow ball onto each target corner
+  const targetCorners = [
+    { u: 0.24, v: 0.25 },
+    { u: 0.76, v: 0.25 },
+    { u: 0.88, v: 0.80 },
+    { u: 0.12, v: 0.80 }
+  ];
+  const tgt = targetCorners[wc.stepIdx] || targetCorners[0];
+  processWalkCalibCandidate(tgt.u, tgt.v, now);
+}
+
+function processWalkCalibCandidate(u, v, now) {
+  const wc = state.walkCalib;
+  wc.lastSeenTs = now;
+
+  // Check if the yellow ball is being held steady near the same spot (< 4% screen drift)
+  const dist = wc.hasCandidate ? Math.hypot(u - wc.candidateU, v - wc.candidateV) : 999;
+  if (!wc.hasCandidate || dist > 0.042) {
+    wc.candidateU = u;
+    wc.candidateV = v;
+    wc.hasCandidate = true;
+    wc.dwellStartTs = now;
+    wc.dwellProgress = 0.05;
+    return;
+  }
+
+  // Smooth exponential moving average on the held corner coordinate for sub-pixel precision
+  wc.candidateU = wc.candidateU * 0.82 + u * 0.18;
+  wc.candidateV = wc.candidateV * 0.82 + v * 0.18;
+
+  // Live-move the current pin to the detected ball so the user sees it snapping in real time
+  state.pins[wc.stepIdx] = {
+    u: Math.max(0.03, Math.min(0.97, wc.candidateU)),
+    v: Math.max(0.08, Math.min(0.89, wc.candidateV))
+  };
+  syncPinsToDOM();
+
+  const elapsed = now - wc.dwellStartTs;
+  wc.dwellProgress = Math.min(1.0, elapsed / wc.dwellDurationMs);
+
+  if (wc.dwellProgress >= 1.0) {
+    lockCurrentWalkCorner();
+  }
+}
+
+function lockCurrentWalkCorner() {
+  const wc = state.walkCalib;
+  if (!wc.active) return;
+
+  const lockedCornerIdx = wc.stepIdx;
+  const shortNames = ['Corner 1 Net Left', 'Corner 2 Net Right', 'Corner 3 Base Right', 'Corner 4 Base Left'];
+  playCalibBeep(1046, 150, 'sine');
+  setTimeout(() => playCalibBeep(1318, 180, 'sine'), 160);
+
+  wc.stepIdx++;
+  wc.dwellProgress = 0;
+  wc.dwellStartTs = 0;
+  wc.hasCandidate = false;
+  // Give the player 2.5 seconds to start walking to the next corner before locking
+  wc.stepCooldownUntil = performance.now() + 2500;
+
+  if (wc.stepIdx < 4) {
+    selectPinForNudge(wc.stepIdx);
+    const fsBtn = document.getElementById('fsWalkCalibBtn');
+    const badge = document.getElementById('calibBadge');
+    if (fsBtn) fsBtn.textContent = `⏹ Stop Walk (P${wc.stepIdx + 1})`;
+    if (badge) badge.textContent = `WALK CALIB: CORNER ${wc.stepIdx + 1}/4`;
+    speakCall(`${shortNames[lockedCornerIdx]} locked! Now walk to ${shortNames[wc.stepIdx]} and hold the ball.`);
+  } else {
+    // All 4 corners locked! Finish Walk Calibration and lock homography
+    wc.active = false;
+    const topBtn = document.getElementById('walkCalibTopBtn');
+    const fsBtn = document.getElementById('fsWalkCalibBtn');
+    if (topBtn) { topBtn.textContent = '🚶 Walk 4 Corners'; topBtn.className = 'btn primary'; }
+    if (fsBtn) { fsBtn.textContent = '🚶 Walk 4 Corners'; fsBtn.className = 'btn green'; }
+
+    if (!state.calibLocked) {
+      toggleLockCalibration();
+    }
+    setTimeout(() => playCalibBeep(1568, 280, 'sine'), 340);
+    speakCall('All 4 court corners locked! Walk calibration complete and ready for match.');
+  }
+}
+
+function drawWalkCalibOverlay(ctx, W, H) {
+  const wc = state.walkCalib;
+  ctx.save();
+
+  // Top-center instruction banner inside camera canvas
+  const boxW = Math.min(W - 20, 340);
+  const boxX = (W - boxW) / 2;
+  const boxY = 54;
+  ctx.fillStyle = 'rgba(8, 11, 16, 0.88)';
+  ctx.strokeStyle = '#d9ff00';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(boxX, boxY, boxW, 56, 10) : ctx.rect(boxX, boxY, boxW, 56);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#d9ff00';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`🚶 WALK CALIBRATION — STEP ${wc.stepIdx + 1} OF 4`, W / 2, boxY + 20);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '11px monospace';
+  ctx.fillText(`Hold yellow ball at ${wc.cornerNames[wc.stepIdx]}`, W / 2, boxY + 38);
+
+  // If a yellow ball candidate is detected, draw the glowing 1.5s dwell lock ring around it
+  if (wc.hasCandidate) {
+    const cx = wc.candidateU * W;
+    const cy = wc.candidateV * H;
+    const r = 28;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+
+    if (wc.dwellProgress > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * wc.dwellProgress);
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#d9ff00';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(`LOCKING P${wc.stepIdx + 1}: ${(wc.dwellProgress * 1.5).toFixed(1)}s`, cx, cy - r - 8);
+  }
+  ctx.restore();
 }
 
 /* ============================================================================
