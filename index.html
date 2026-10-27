@@ -614,6 +614,84 @@
     font-size: 12px;
   }
   .mono { font-family: var(--mono); }
+  /* Smartwatch Wrist Remote UI (fits Galaxy Watch / WearOS & Pocket Remote) */
+  .watch-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: #000000;
+    color: #ffffff;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 10px 8px 18px;
+    overflow-y: auto;
+  }
+  .watch-overlay.active {
+    display: flex;
+  }
+  .watch-bezel {
+    width: 100%;
+    max-width: 330px;
+    background: radial-gradient(circle at 50% 25%, #13221c 0%, #05080c 85%);
+    border: 3px solid var(--optic);
+    border-radius: 36px;
+    padding: 14px 12px;
+    box-shadow: 0 0 28px rgba(217, 255, 0, 0.22);
+    text-align: center;
+  }
+  .watch-score-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 8px 10px;
+    margin: 8px 0;
+  }
+  .watch-pts {
+    font-size: 32px;
+    font-weight: 900;
+    font-family: var(--mono);
+    color: var(--optic);
+    line-height: 1;
+  }
+  .watch-subscore {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .watch-btn-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .watch-btn {
+    padding: 13px 8px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 900;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: #182232;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+  }
+  .watch-btn:active { transform: scale(0.95); }
+  .watch-btn.optic { background: var(--optic); color: #05080c; border-color: var(--optic); }
+  .watch-btn.green { background: #10b981; color: #04130d; border-color: #10b981; }
+  .watch-btn.red { background: #ef4444; color: #fff; border-color: #ef4444; }
+  .watch-btn.amber { background: #f59e0b; color: #090601; border-color: #f59e0b; }
+
 </style>
 </head>
 <body>
@@ -686,8 +764,9 @@
         <div>
           <label>This Phone's Role</label>
           <select id="nodeRoleSelect" onchange="setNodeRole(this.value)">
-            <option value="host">Host + Camera Node (Primary Scoreboard)</option>
-            <option value="camera">Remote Camera Node (Streams &lt;1KB Events)</option>
+            <option value="host">Host + Tripod Camera (Primary Scoreboard)</option>
+            <option value="watch">⌚ Smartwatch / Wrist Remote (Controls Host)</option>
+            <option value="camera">2nd Phone Camera Node (Streams &lt;1KB Events)</option>
           </select>
         </div>
       </div>
@@ -706,10 +785,15 @@
           <div style="font-size:12px;color:var(--muted);margin:6px 0 10px;">
             Scan QR on Phone 2/3/4 or enter room code below to pair over WebRTC data channels (`&lt;1 KB` JSON bounce packets).
           </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+            <input type="text" id="joinCodeInput" placeholder="Enter 6-char Host Code" style="width:155px;text-transform:uppercase;" maxlength="6" />
+            <button class="btn primary" onclick="joinHostRoom()">🔗 Link to Host</button>
+            <button class="btn green" onclick="openWatchRemoteMode(true)">⌚ Open Watch Remote UI</button>
+          </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <input type="text" id="joinCodeInput" placeholder="Enter 6-char Host Code" style="width:165px;text-transform:uppercase;" maxlength="6" />
-            <button class="btn primary" onclick="joinHostRoom()">Join Host</button>
-            <button class="btn" onclick="simulatePeerPing()">Test &lt;1KB Bounce Ping</button>
+            <button class="btn amber" id="btWatchMediaBtn" onclick="enableBluetoothWatchMediaControl()" style="font-size:11px;padding:7px 10px;">
+              ⌚ Enable Bluetooth Watch Media Control (No Watch Browser Needed)
+            </button>
           </div>
         </div>
       </div>
@@ -1077,6 +1161,73 @@
   </section>
 </main>
 
+
+  <!-- ================= SMARTWATCH / WRIST REMOTE FULLSCREEN UI ================= -->
+  <div class="watch-overlay" id="watchRemoteOverlay">
+    <div class="watch-bezel">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0 6px;">
+        <span class="pill green" id="watchConnBadge" style="font-size:10px;">⌚ LINKED TO HOST</span>
+        <span class="mono" style="font-size:10px;color:var(--muted);" id="watchRoomLabel">ROOM: ------</span>
+      </div>
+
+      <!-- Live Call / Calibration Status Banner on Wrist -->
+      <div id="watchCallBanner" style="margin-top:8px;padding:7px 10px;border-radius:14px;background:rgba(16,185,129,0.18);border:1px solid var(--green);">
+        <div style="font-size:14px;font-weight:900;color:var(--optic);" id="watchCallTitle">READY ON WRIST</div>
+        <div class="mono" style="font-size:10px;color:var(--text);" id="watchCallSub">Controls Tripod Host Camera</div>
+      </div>
+
+      <!-- High-Contrast Wrist Scoreboard -->
+      <div class="watch-score-grid">
+        <div>
+          <div style="font-size:11px;font-weight:800;color:var(--text);" id="watchNameA">Nugra</div>
+          <div class="watch-pts" id="watchPtsA">0</div>
+          <div class="watch-subscore">S:<span id="watchSetsA">0</span> G:<span id="watchGamesA">0</span></div>
+        </div>
+        <div style="font-size:12px;font-weight:900;color:var(--muted);">VS</div>
+        <div>
+          <div style="font-size:11px;font-weight:800;color:var(--text);" id="watchNameB">Rival</div>
+          <div class="watch-pts" id="watchPtsB">0</div>
+          <div class="watch-subscore">S:<span id="watchSetsB">0</span> G:<span id="watchGamesB">0</span></div>
+        </div>
+      </div>
+
+      <!-- Primary Wrist Action Buttons (Tripod Calibration + Match + Override) -->
+      <div class="watch-btn-grid">
+        <button class="watch-btn optic" onclick="sendWatchCommand('walk_calib')" id="watchWalkBtn">
+          <span>🚶 Walk Calib</span>
+          <span style="font-size:9px;font-weight:600;opacity:0.85;">4 Corners (1.5s)</span>
+        </button>
+        <button class="watch-btn green" onclick="sendWatchCommand('lock_corner')" id="watchPinLockBtn">
+          <span>📍 Snap Corner</span>
+          <span style="font-size:9px;font-weight:600;opacity:0.85;">Lock Current Pin</span>
+        </button>
+        <button class="watch-btn red" onclick="sendWatchCommand('overrule')">
+          <span>🔄 Overrule</span>
+          <span style="font-size:9px;font-weight:600;opacity:0.85;">Flip IN ↔ OUT</span>
+        </button>
+        <button class="watch-btn amber" onclick="sendWatchCommand('replay')">
+          <span>↩️ Replay Point</span>
+          <span style="font-size:9px;font-weight:600;opacity:0.85;">Call Let</span>
+        </button>
+        <button class="watch-btn" onclick="sendWatchCommand('point_a')">
+          <span>+1 Pt <span id="watchBtnNameA">Nugra</span></span>
+        </button>
+        <button class="watch-btn" onclick="sendWatchCommand('point_b')">
+          <span>+1 Pt <span id="watchBtnNameB">Rival</span></span>
+        </button>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button class="watch-btn green" style="flex:1;padding:10px;" onclick="sendWatchCommand('start_match')">
+          🎾 Start / Sync Match (0–0)
+        </button>
+        <button class="watch-btn" style="padding:10px 12px;font-size:11px;" onclick="closeWatchRemoteMode()">
+          ✕ Exit
+        </button>
+      </div>
+    </div>
+  </div>
+
 <script>
 /* ============================================================================
    1. STATE & TENNIS SCORE ENGINE
@@ -1163,7 +1314,16 @@ function selectTopology(mode, cardEl) {
 function setNodeRole(role) {
   state.role = role;
   const pill = document.getElementById('rolePill');
-  pill.textContent = role === 'host' ? 'HOST NODE' : 'CAMERA NODE';
+  if (role === 'host') {
+    pill.textContent = 'HOST NODE';
+    closeWatchRemoteMode();
+  } else if (role === 'watch') {
+    pill.textContent = '⌚ WATCH REMOTE';
+    openWatchRemoteMode(false);
+  } else {
+    pill.textContent = 'CAMERA NODE';
+    closeWatchRemoteMode();
+  }
 }
 
 function updatePlayerNames() {
@@ -1247,9 +1407,14 @@ function initPairing() {
     document.getElementById('peerStateBadge').textContent = 'LOCAL MODE READY';
   }
 
-  // Auto-populate join code if opened via QR link
+  // Auto-populate join code if opened via QR link or ?watch=CODE
   const params = new URLSearchParams(window.location.search);
-  if (params.get('join')) {
+  if (params.get('watch')) {
+    document.getElementById('joinCodeInput').value = params.get('watch');
+    document.getElementById('nodeRoleSelect').value = 'watch';
+    setNodeRole('watch');
+    setTimeout(() => joinHostRoom(), 600);
+  } else if (params.get('join')) {
     document.getElementById('joinCodeInput').value = params.get('join');
     document.getElementById('nodeRoleSelect').value = 'camera';
     setNodeRole('camera');
@@ -1300,6 +1465,10 @@ function handleIncomingPeerPacket(packet) {
     startMatchNow(true);
   } else if (packet.type === 'end_match') {
     endMatchNow(packet.reason || 'Ended by Partner Phone', true);
+  } else if (packet.type === 'remote_cmd') {
+    handleRemoteWatchCommand(packet.cmd);
+  } else if (packet.type === 'host_state') {
+    updateWatchUIFromHostState(packet);
   }
 }
 
@@ -3513,6 +3682,7 @@ function renderScoreboard() {
   document.getElementById('serveDotB').style.opacity = state.server === 'B' ? '1' : '0.15';
 
   document.getElementById('pointCountBadge').textContent = `${state.history.length} Points`;
+  syncWatchAndMediaSessionState();
   const listEl = document.getElementById('pointHistoryList');
   if (state.history.length === 0) {
     listEl.innerHTML = '<div class="log-item" style="color:var(--muted);">No points played yet — trigger a shot or tap + Point above.</div>';
@@ -3529,6 +3699,236 @@ function renderScoreboard() {
     </div>`;
   }).join('');
 }
+
+
+/* ============================================================================
+   8. SMARTWATCH WRIST REMOTE (WEBRTC + BLUETOOTH WATCH MEDIA CONTROLLER)
+   ============================================================================ */
+state.watchRemoteActive = false;
+state.btMediaAudio = null;
+
+function openWatchRemoteMode(autoJoin = false) {
+  state.watchRemoteActive = true;
+  const overlay = document.getElementById('watchRemoteOverlay');
+  if (overlay) overlay.classList.add('active');
+  document.getElementById('watchRoomLabel').textContent = 'ROOM: ' + ( document.getElementById('joinCodeInput').value.trim().toUpperCase() || state.roomCode || 'LOCAL');
+  if (autoJoin && document.getElementById('joinCodeInput').value.trim()) {
+    joinHostRoom();
+  }
+  syncWatchAndMediaSessionState();
+}
+
+function closeWatchRemoteMode() {
+  state.watchRemoteActive = false;
+  const overlay = document.getElementById('watchRemoteOverlay');
+  if (overlay) overlay.classList.remove('active');
+}
+
+function sendWatchCommand(cmd) {
+  // Vibrate watch/wrist on tap if supported
+  if (navigator.vibrate) {
+    try { navigator.vibrate(45); } catch (e) {}
+  }
+  // If connected to a remote Host via WebRTC, send <1KB remote_cmd packet
+  if (state.connections && state.connections.length > 0) {
+    broadcastPeerPacket({ type: 'remote_cmd', cmd, ts: Date.now() });
+  }
+  // Also execute locally if testing on the same device or acting as Host
+  if (state.role === 'host' || state.connections.length === 0) {
+    handleRemoteWatchCommand(cmd);
+  }
+}
+
+function handleRemoteWatchCommand(cmd) {
+  if (cmd === 'walk_calib') {
+    if (state.isFullscreenCalib === false && document.getElementById('screen2').classList.contains('active')) {
+      // Already on screen 2
+    } else {
+      switchScreen(2);
+    }
+    toggleWalkCalibration();
+  } else if (cmd === 'lock_corner') {
+    if (state.walkCalib && state.walkCalib.active) {
+      lockCurrentWalkCorner();
+    } else {
+      autoDetectCourtLines();
+    }
+  } else if (cmd === 'start_match') {
+    startMatchNow();
+  } else if (cmd === 'overrule') {
+    overrideLastCall('overrule');
+  } else if (cmd === 'replay') {
+    overrideLastCall('replay');
+  } else if (cmd === 'point_a') {
+    awardPoint('A', 'Wrist Remote (+1 ' + state.playerA + ')', true);
+  } else if (cmd === 'point_b') {
+    awardPoint('B', 'Wrist Remote (+1 ' + state.playerB + ')', true);
+  }
+  syncWatchAndMediaSessionState();
+}
+
+function syncWatchAndMediaSessionState() {
+  const [dispA, dispB] = formatPoints(state.ptsA, state.ptsB);
+  const titleEl = document.getElementById('liveCallTitle');
+  const subEl = document.getElementById('liveCallSub');
+  const callTitle = titleEl ? titleEl.textContent : 'READY';
+  const callSub = subEl ? subEl.textContent : '';
+
+  // Update local Watch Overlay UI
+  const wNameA = document.getElementById('watchNameA');
+  const wNameB = document.getElementById('watchNameB');
+  if (wNameA) {
+    wNameA.textContent = state.playerA;
+    wNameB.textContent = state.playerB;
+    document.getElementById('watchBtnNameA').textContent = state.playerA.split(' ')[0];
+    document.getElementById('watchBtnNameB').textContent = state.playerB.split(' ')[0];
+    document.getElementById('watchPtsA').textContent = dispA;
+    document.getElementById('watchPtsB').textContent = dispB;
+    document.getElementById('watchSetsA').textContent = state.setsA;
+    document.getElementById('watchSetsB').textContent = state.setsB;
+    document.getElementById('watchGamesA').textContent = state.gamesA;
+    document.getElementById('watchGamesB').textContent = state.gamesB;
+    document.getElementById('watchCallTitle').textContent =
+      (state.walkCalib && state.walkCalib.active)
+        ? `WALK CALIB: P${state.walkCalib.stepIdx + 1}/4`
+        : callTitle;
+    document.getElementById('watchCallSub').textContent =
+      (state.walkCalib && state.walkCalib.active)
+        ? state.walkCalib.cornerNames[state.walkCalib.stepIdx]
+        : callSub;
+  }
+
+  // Broadcast live state to any linked Smartwatch WebRTC node
+  if (state.role === 'host' && state.connections && state.connections.length > 0) {
+    const packet = {
+      type: 'host_state',
+      playerA: state.playerA,
+      playerB: state.playerB,
+      ptsA: dispA,
+      ptsB: dispB,
+      setsA: state.setsA,
+      setsB: state.setsB,
+      gamesA: state.gamesA,
+      gamesB: state.gamesB,
+      callTitle: (state.walkCalib && state.walkCalib.active) ? `WALK CALIB: P${state.walkCalib.stepIdx + 1}/4` : callTitle,
+      callSub: (state.walkCalib && state.walkCalib.active) ? state.walkCalib.cornerNames[state.walkCalib.stepIdx] : callSub
+    };
+    state.connections.forEach(c => {
+      try { c.send(packet); } catch (e) {}
+    });
+  }
+
+  // Update Bluetooth Galaxy Watch MediaSession metadata (shows live score on Watch Media Controller!)
+  if ('mediaSession' in navigator && state.btMediaAudio) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `${state.playerA} ${dispA} – ${dispB} ${state.playerB} (${state.gamesA}-${state.gamesB})`,
+        artist: callTitle,
+        album: 'JARVIS Tennis Umpire • Next=Overrule | Prev=Replay'
+      });
+    } catch (e) {}
+  }
+}
+
+function updateWatchUIFromHostState(pkt) {
+  document.getElementById('watchNameA').textContent = pkt.playerA;
+  document.getElementById('watchNameB').textContent = pkt.playerB;
+  document.getElementById('watchBtnNameA').textContent = pkt.playerA.split(' ')[0];
+  document.getElementById('watchBtnNameB').textContent = pkt.playerB.split(' ')[0];
+  document.getElementById('watchPtsA').textContent = pkt.ptsA;
+  document.getElementById('watchPtsB').textContent = pkt.ptsB;
+  document.getElementById('watchSetsA').textContent = pkt.setsA;
+  document.getElementById('watchSetsB').textContent = pkt.setsB;
+  document.getElementById('watchGamesA').textContent = pkt.gamesA;
+  document.getElementById('watchGamesB').textContent = pkt.gamesB;
+  document.getElementById('watchCallTitle').textContent = pkt.callTitle || 'LIVE';
+  document.getElementById('watchCallSub').textContent = pkt.callSub || '';
+}
+
+// Zero-App Bluetooth Smartwatch Control via Web MediaSession API
+// Allows the player's paired Galaxy Watch Media Controller tile to see the live score
+// and control Walk Calib (Play/Pause), Overrule (Next Track), and Replay (Prev Track)!
+function enableBluetoothWatchMediaControl() {
+  try {
+    // Generate a tiny 1-second silent WAV loop in memory so Android activates the Galaxy Watch Media Controller
+    const sampleRate = 8000;
+    const numSamples = sampleRate;
+    const buffer = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(buffer);
+    function writeStr(offset, str) {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    }
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + numSamples * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, numSamples * 2, true);
+
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    if (!state.btMediaAudio) {
+      state.btMediaAudio = new Audio(url);
+      state.btMediaAudio.loop = true;
+      state.btMediaAudio.volume = 0.01;
+    }
+    state.btMediaAudio.play();
+
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => {
+        state.btMediaAudio.play();
+        if (!state.calibLocked) handleRemoteWatchCommand('walk_calib');
+        else if (!state.matchStarted) handleRemoteWatchCommand('start_match');
+        else speakCall(getSpokenScore());
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        state.btMediaAudio.play(); // Keep session alive on watch
+        if (state.walkCalib && state.walkCalib.active) handleRemoteWatchCommand('lock_corner');
+        else if (!state.calibLocked) handleRemoteWatchCommand('walk_calib');
+        else if (!state.matchStarted) handleRemoteWatchCommand('start_match');
+        else speakCall(getSpokenScore());
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        if (state.walkCalib && state.walkCalib.active) handleRemoteWatchCommand('lock_corner');
+        else handleRemoteWatchCommand('overrule');
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        handleRemoteWatchCommand('replay');
+      });
+    }
+
+    syncWatchAndMediaSessionState();
+    const btn = document.getElementById('btWatchMediaBtn');
+    if (btn) {
+      btn.textContent = '✅ Galaxy Watch Bluetooth Control ACTIVE (Next=Overrule, Prev=Replay, Play=Calib/Start)';
+      btn.className = 'btn green';
+    }
+    speakCall('Galaxy Watch Bluetooth control enabled. Use Next Track on your watch to overrule or snap a corner, Previous Track to replay point, and Play to start calibration or match.');
+  } catch (e) {
+    console.warn('MediaSession init error:', e);
+  }
+}
+
+// Also listen for Bluetooth Shutter / Watch Hardware Key Events
+window.addEventListener('keydown', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+  if (e.key === 'MediaTrackNext' || e.key === 'ArrowRight') {
+    if (state.walkCalib && state.walkCalib.active) handleRemoteWatchCommand('lock_corner');
+    else handleRemoteWatchCommand('overrule');
+  } else if (e.key === 'MediaTrackPrevious' || e.key === 'ArrowLeft') {
+    handleRemoteWatchCommand('replay');
+  } else if (e.key === 'MediaPlayPause') {
+    if (!state.calibLocked) handleRemoteWatchCommand('walk_calib');
+    else if (!state.matchStarted) handleRemoteWatchCommand('start_match');
+  }
+});
 
 window.addEventListener('DOMContentLoaded', () => {
   initPairing();
